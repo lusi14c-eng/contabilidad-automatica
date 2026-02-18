@@ -1,111 +1,141 @@
 import streamlit as st
 import pandas as pd
 import io
-import plotly.express as px  # Asegúrate de añadir 'plotly' a tu requirements.txt
+import plotly.express as px
 
-# Configuración de página
-st.set_page_config(page_title="Adonai Industrial Group - Dashboard", layout="wide")
+# 1. Configuración de página
+st.set_page_config(page_title="Adonai Industrial Group - Contabilidad", layout="wide")
 
-# --- ENCABEZADO PERSONALIZADO ---
+# 2. Encabezado Corporativo
 st.markdown(f"""
-    <div style="background-color:#1E3A8A;padding:20px;border-radius:10px;margin-bottom:20px">
+    <div style="background-color:#1E3A8A;padding:20px;border-radius:10px;margin-bottom:25px">
     <h1 style="color:white;text-align:center;margin:0;">ADONAI INDUSTRIAL GROUP</h1>
-    <h3 style="color:white;text-align:center;margin:0;opacity:0.8;">Panel de Inteligencia Financiera</h3>
+    <h3 style="color:white;text-align:center;margin:0;opacity:0.8;">Sistema de Automatización Contable Multibanco</h3>
     </div>
     """, unsafe_allow_html=True)
 
-# --- BARRA LATERAL ---
-st.sidebar.header("📁 Carga de Documentación")
-archivo_maestro = st.sidebar.file_uploader("Subir Maestro de Cuentas (Cerebro)", type=["xlsx"])
-archivo_datos = st.sidebar.file_uploader("Subir Libro de Bancos (Movimientos)", type=["xlsx"])
+# 3. Barra Lateral para carga de archivos
+st.sidebar.header("📁 Carga de Datos")
+archivo_maestro = st.sidebar.file_uploader("1. Subir Maestro de Cuentas (Cerebro)", type=["xlsx"])
+archivo_datos = st.sidebar.file_uploader("2. Subir Libro de Bancos (Movimientos)", type=["xlsx"])
 
 if archivo_maestro and archivo_datos:
-    # 1. Cargar Configuración
-    df_m = pd.read_excel(archivo_maestro, sheet_name="Maestro_Cuentas")
-    df_b = pd.read_excel(archivo_maestro, sheet_name="Bancos")
-    dict_bancos = pd.Series(df_b["Cuenta Contable Banco"].values, index=df_b["Nombre Pestaña"]).to_dict()
+    try:
+        # Carga del Cerebro
+        df_m = pd.read_excel(archivo_maestro, sheet_name="Maestro_Cuentas")
+        df_b = pd.read_excel(archivo_maestro, sheet_name="Bancos")
+        
+        # Limpieza básica de datos en el maestro
+        df_m['Codigo'] = df_m['Codigo'].astype(str).str.strip()
+        dict_bancos = pd.Series(df_b["Cuenta Contable Banco"].values, index=df_b["Nombre Pestaña"]).to_dict()
+        
+        # Carga de Movimientos (Todas las pestañas)
+        dict_hojas = pd.read_excel(archivo_datos, sheet_name=None)
+        
+    except Exception as e:
+        st.error(f"❌ Error al leer los archivos: {e}")
+        st.info("Asegúrese de que las pestañas se llamen 'Maestro_Cuentas' y 'Bancos'.")
+        st.stop()
 
-    # 2. Cargar Movimientos
-    dict_hojas = pd.read_excel(archivo_datos, sheet_name=None)
-    
     asientos_list = []
     movimientos_pnl = []
 
+    # 4. Procesamiento Lógico
     for banco, df in dict_hojas.items():
         if banco in dict_bancos:
             cta_banco = dict_bancos[banco]
+            # Normalizar nombres de columnas a minúsculas y sin espacios
             df.columns = [str(c).strip().lower() for c in df.columns]
 
             for _, row in df.iterrows():
-                # Lógica Ingreso
+                # --- PROCESAR INGRESOS ---
                 if pd.notnull(row.get('ingreso')) and row['ingreso'] > 0:
-                    cod = row.get('codigo de ingreso')
+                    monto = row['ingreso']
+                    cod = str(row.get('codigo de ingreso', '')).strip()
                     match = df_m[df_m['Codigo'] == cod]
+                    
                     if not match.empty:
-                        monto = row['ingreso']
-                        movimientos_pnl.append({"Categoría": match['Categoría P&L'].values[0], "Monto": monto, "Tipo": "Ingreso"})
-                        # (Lógica de asientos omitida aquí por brevedad, se mantiene igual al anterior)
+                        cta_contra = match['Cuenta Contable'].values[0]
+                        cat_pnl = match['Categoría P&L'].values[0]
+                        desc = row.get('descripcion', 'Ingreso Bancario')
+                        fecha = row.get('fecha', 'S/F')
 
-                # Lógica Egreso
+                        asientos_list.append({"Fecha": fecha, "Banco": banco, "Cuenta": cta_banco, "Debe": monto, "Haber": 0, "Glosa": desc})
+                        asientos_list.append({"Fecha": fecha, "Banco": banco, "Cuenta": cta_contra, "Debe": 0, "Haber": monto, "Glosa": desc})
+                        movimientos_pnl.append({"Categoría": cat_pnl, "Monto": monto, "Tipo": "Ingreso"})
+
+                # --- PROCESAR EGRESOS ---
                 if pd.notnull(row.get('egreso')) and row['egreso'] > 0:
-                    cod = row.get('codigo de egreso')
+                    monto = row['egreso']
+                    cod = str(row.get('codigo de egreso', '')).strip()
                     match = df_m[df_m['Codigo'] == cod]
+                    
                     if not match.empty:
-                        monto = row['egreso']
-                        movimientos_pnl.append({"Categoría": match['Categoría P&L'].values[0], "Monto": monto, "Tipo": "Egreso"})
+                        cta_contra = match['Cuenta Contable'].values[0]
+                        cat_pnl = match['Categoría P&L'].values[0]
+                        desc = row.get('descripcion', 'Egreso Bancario')
+                        fecha = row.get('fecha', 'S/F')
 
-    # --- PROCESAMIENTO DE GRÁFICOS ---
-    df_pnl_raw = pd.DataFrame(movimientos_pnl)
-    
-    tab1, tab2 = st.tabs(["📊 Análisis Gerencial (P&L)", "📒 Libro Diario"])
+                        asientos_list.append({"Fecha": fecha, "Banco": banco, "Cuenta": cta_contra, "Debe": monto, "Haber": 0, "Glosa": desc})
+                        asientos_list.append({"Fecha": fecha, "Banco": banco, "Cuenta": cta_banco, "Debe": 0, "Haber": monto, "Glosa": desc})
+                        movimientos_pnl.append({"Categoría": cat_pnl, "Monto": monto, "Tipo": "Egreso"})
+
+    # 5. Interfaz de Resultados (Tabs)
+    tab1, tab2 = st.tabs(["📊 Análisis Gerencial (P&L)", "📒 Libro Diario Consolidados"])
 
     with tab1:
-        if not df_pnl_raw.empty:
-            # Métricas Superiores
-            total_ingresos = df_pnl_raw[df_pnl_raw["Tipo"] == "Ingreso"]["Monto"].sum()
-            total_egresos = df_pnl_raw[df_pnl_raw["Tipo"] == "Egreso"]["Monto"].sum()
-            utilidad = total_ingresos - total_egresos
+        if movimientos_pnl:
+            df_pnl_raw = pd.DataFrame(movimientos_pnl)
             
-            m1, m2, m3 = st.columns(3)
-            m1.metric("TOTAL INGRESOS", f"Bs. {total_ingresos:,.2f}")
-            m2.metric("TOTAL EGRESOS", f"Bs. {total_egresos:,.2f}", delta=f"-{total_egresos:,.2f}", delta_color="inverse")
-            m3.metric("UTILIDAD NETA", f"Bs. {utilidad:,.2f}", delta=f"{(utilidad/total_ingresos)*100:.1f}% Margen" if total_ingresos > 0 else "0%")
+            # Métricas
+            t_ingresos = df_pnl_raw[df_pnl_raw["Tipo"] == "Ingreso"]["Monto"].sum()
+            t_egresos = df_pnl_raw[df_pnl_raw["Tipo"] == "Egreso"]["Monto"].sum()
+            utilidad = t_ingresos - t_egresos
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("TOTAL INGRESOS", f"Bs. {t_ingresos:,.2f}")
+            c2.metric("TOTAL EGRESOS", f"Bs. {t_egresos:,.2f}", delta=f"-{t_egresos:,.2f}", delta_color="inverse")
+            c3.metric("UTILIDAD NETA", f"Bs. {utilidad:,.2f}")
 
             st.write("---")
             
-            col_chart1, col_chart2 = st.columns(2)
-            
-            with col_chart1:
-                st.subheader("Distribución de Gastos y Costos")
+            # Gráficos
+            g1, g2 = st.columns(2)
+            with g1:
+                st.subheader("Distribución de Gastos")
                 df_gastos = df_pnl_raw[df_pnl_raw["Tipo"] == "Egreso"].groupby("Categoría")["Monto"].sum().reset_index()
-                fig_pie = px.pie(df_gastos, values='Monto', names='Categoría', hole=0.4, 
-                                 color_discrete_sequence=px.colors.qualitative.Pastel)
+                fig_pie = px.pie(df_gastos, values='Monto', names='Categoría', hole=0.4)
                 st.plotly_chart(fig_pie, use_container_width=True)
-
-            with col_chart2:
-                st.subheader("Comparativa por Categoría")
+            
+            with g2:
+                st.subheader("Ingresos vs Egresos por Categoría")
                 df_cat = df_pnl_raw.groupby(["Categoría", "Tipo"])["Monto"].sum().reset_index()
                 fig_bar = px.bar(df_cat, x="Categoría", y="Monto", color="Tipo", barmode="group",
                                  color_discrete_map={"Ingreso": "#10B981", "Egreso": "#EF4444"})
                 st.plotly_chart(fig_bar, use_container_width=True)
-            
-            st.write("### Detalle Contable del P&L")
-            resumen_tabla = df_pnl_raw.groupby(["Categoría", "Tipo"])["Monto"].sum().unstack().fillna(0)
-            st.table(resumen_tabla.style.format("{:,.2f}"))
         else:
-            st.warning("No hay datos suficientes para generar gráficos.")
+            st.warning("No se encontraron movimientos válidos para generar el P&L.")
 
     with tab2:
-        st.info("Aquí se mostrará el listado de asientos contables para exportar.")
-        # (Aquí va el código del DataFrame de asientos del paso anterior)
+        if asientos_list:
+            df_final_asientos = pd.DataFrame(asientos_list)
+            st.dataframe(df_final_asientos, use_container_width=True)
+            
+            # Botón de Descarga
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df_final_asientos.to_excel(writer, index=False, sheet_name='Asientos')
+            
+            st.download_button(
+                label="📥 Descargar Libro Diario para Adonai",
+                data=output.getvalue(),
+                file_name="Asientos_Contables_Adonai.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 else:
-    st.info("👋 Bienvenido. Cargue los archivos para visualizar el análisis de Adonai Industrial Group.")
-    try:
-    # Intentamos cargar las pestañas específicas
-    df_m = pd.read_excel(archivo_maestro, sheet_name="Maestro_Cuentas")
-    df_b = pd.read_excel(archivo_maestro, sheet_name="Bancos")
-    dict_bancos = pd.Series(df_b["Cuenta Contable Banco"].values, index=df_b["Nombre Pestaña"]).to_dict()
-except ValueError:
-    st.error("❌ Error de Formato: No se encontró la pestaña 'Maestro_Cuentas' o 'Bancos' en el archivo Maestro.")
-    st.stop() # Detiene la ejecución para que no salga el error rojo feo
+    st.info("👋 Bienvenido. Cargue el Maestro y el Libro de Bancos para comenzar el análisis de Adonai Industrial Group.")
+    st.markdown("""
+    **Estructura esperada:**
+    - **Maestro:** Pestañas 'Maestro_Cuentas' y 'Bancos'.
+    - **Bancos:** Pesta
