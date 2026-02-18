@@ -100,4 +100,4 @@ if archivo_maestro and archivo_datos:
         # (Aquí va el código del DataFrame de asientos del paso anterior)
 
 else:
-    st.info("👋 Bienvenido. Carg
+    st.info("👋 Bienvenido. Cargue los archivos para visualizar el análisis de Adonai Industrial Group.")
