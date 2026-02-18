@@ -138,4 +138,5 @@ else:
     st.markdown("""
     **Estructura esperada:**
     - **Maestro:** Pestañas 'Maestro_Cuentas' y 'Bancos'.
-    - **Bancos:** Pesta
+    - **Bancos:** Pestañas con nombres de bancos, columnas 'fecha', 'ingreso', 'egreso', 'codigo de ingreso', 'codigo de egreso'.
+    """)
