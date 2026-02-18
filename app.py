@@ -101,3 +101,11 @@ if archivo_maestro and archivo_datos:
 
 else:
     st.info("👋 Bienvenido. Cargue los archivos para visualizar el análisis de Adonai Industrial Group.")
+    try:
+    # Intentamos cargar las pestañas específicas
+    df_m = pd.read_excel(archivo_maestro, sheet_name="Maestro_Cuentas")
+    df_b = pd.read_excel(archivo_maestro, sheet_name="Bancos")
+    dict_bancos = pd.Series(df_b["Cuenta Contable Banco"].values, index=df_b["Nombre Pestaña"]).to_dict()
+except ValueError:
+    st.error("❌ Error de Formato: No se encontró la pestaña 'Maestro_Cuentas' o 'Bancos' en el archivo Maestro.")
+    st.stop() # Detiene la ejecución para que no salga el error rojo feo
