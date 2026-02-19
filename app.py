@@ -5,7 +5,15 @@ from googleapiclient.discovery import build
 import io
 import re
 
-st.set_page_config(page_title="Adonai Group ERP", layout="wide")
+st.set_page_config(page_title="Adonai Group ERP", layout="wide", page_icon="🏦")
+
+# Estilo personalizado para que se vea mejor
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_content_type=True)
 
 if 'datos_acumulados' not in st.session_state:
     st.session_state.datos_acumulados = pd.DataFrame()
@@ -18,7 +26,7 @@ def conectar_drive():
         creds = service_account.Credentials.from_service_account_info(creds_dict)
         return build('drive', 'v3', credentials=creds)
     except Exception as e:
-        st.error(f"Error de credenciales: {e}")
+        st.error(f"Error de conexión: {e}")
         return None
 
 def leer_excel_drive(service, mes, moneda):
@@ -33,112 +41,117 @@ def leer_excel_drive(service, mes, moneda):
             return pd.read_excel(io.BytesIO(request.execute()), sheet_name=None, header=None)
     except: return None
 
-def limpiar_monto_ultra(valor):
-    """Limpia cualquier formato de número, incluyendo espacios y símbolos."""
+def limpiar_monto(valor):
     if pd.isna(valor) or str(valor).strip() == '': return 0.0
     if isinstance(valor, (int, float)): return float(valor)
-    
-    texto = str(valor).strip().lower()
-    # Eliminar todo lo que no sea número, coma o punto
-    texto = re.sub(r'[^0-9,.-]', '', texto)
-    
-    if not texto: return 0.0
-    
-    # Manejo de formato latino (1.500,00) vs americano (1,500.00)
+    texto = str(valor).upper().replace('BS', '').replace('$', '').replace(' ', '').strip()
     if ',' in texto and '.' in texto:
-        if texto.rfind(',') > texto.rfind('.'): # Coma es decimal
-            texto = texto.replace('.', '').replace(',', '.')
-        else: # Punto es decimal
-            texto = texto.replace(',', '')
-    elif ',' in texto: # Solo coma
-        texto = texto.replace(',', '.')
-        
-    try:
-        return float(texto)
-    except:
-        return 0.0
+        if texto.rfind(',') > texto.rfind('.'): texto = texto.replace('.', '').replace(',', '.')
+        else: texto = texto.replace(',', '')
+    elif ',' in texto: texto = texto.replace(',', '.')
+    texto = re.sub(r'[^0-9.-]', '', texto)
+    try: return float(texto)
+    except: return 0.0
 
 def procesar_hojas(dict_hojas, moneda, tasa):
     lista_final = []
     if not dict_hojas: return pd.DataFrame()
 
     for nombre_hoja, df_raw in dict_hojas.items():
-        # Saltamos hojas administrativas
-        if any(x in nombre_hoja.lower() for x in ['gyp', 'data', 'portada', 'hoja1']): continue
-        
-        # Limpiamos el dataframe de filas y columnas totalmente vacías
-        df = df_raw.dropna(how='all').dropna(axis=1, how='all')
-        
-        # Intentamos detectar columnas de montos escaneando el contenido
-        col_ing = None
-        col_egr = None
-        
-        # Buscamos en las columnas de la derecha (donde suelen estar los montos)
-        for col_idx in range(len(df.columns)):
-            col_name = str(df.iloc[0, col_idx]).lower()
-            if any(k in col_name for k in ['ing', 'deb', 'ent', 'monto']): col_ing = df.columns[col_idx]
-            if any(k in col_name for k in ['egr', 'hab', 'sal']): col_egr = df.columns[col_idx]
+        if any(x in nombre_hoja.lower() for x in ['data', 'portada', 'hoja1']): continue
+        # Si es la hoja de resumen GYP, solo la usamos si tiene el detalle de movimientos
+        if nombre_hoja.lower() == 'gyp' and moneda == 'BS': continue 
 
-        # SI NO HAY NOMBRES, USAMOS POSICIÓN (Basado en el estándar de tus archivos)
-        if col_ing is None or col_egr is None:
-            # En relaciones contables, Ingreso suele ser la penúltima y Egreso la última
-            # O Ingreso columna 6 y Egreso columna 7
-            columnas = df.columns.tolist()
-            if len(columnas) >= 5:
-                col_ing = columnas[-2] # Penúltima
-                col_egr = columnas[-1] # Última
+        # 1. Buscar la fila de encabezados que contenga 'GYP'
+        idx_titulos = -1
+        for i in range(min(40, len(df_raw))):
+            fila = [str(x).upper() for x in df_raw.iloc[i].values]
+            if 'GYP' in fila:
+                idx_titulos = i
+                break
+        
+        if idx_titulos == -1: continue
 
-        if col_ing is not None and col_egr is not None:
-            temp_df = df.copy()
-            temp_df['ing_f'] = temp_df[col_ing].apply(limpiar_monto_ultra)
-            temp_df['egr_f'] = temp_df[col_egr].apply(limpiar_monto_ultra)
+        df = df_raw.iloc[idx_titulos:].copy()
+        df.columns = [str(c).strip().upper() for c in df.iloc[0]]
+        df = df.iloc[1:].reset_index(drop=True)
+        
+        # 2. Identificar columnas clave (Ingresos BS/USD, Egresos BS/USD, GYP)
+        c_gyp = 'GYP'
+        c_ing = next((c for c in df.columns if 'INGRESOS' in c), None)
+        c_egr = next((c for c in df.columns if 'EGRESOS' in c), None)
+        c_desc = next((c for c in df.columns if 'DESCRIPCION' in c or 'CONCEPTO' in c), 'DESCRIPCION')
+
+        if c_ing and c_egr:
+            df['ING_F'] = df[c_ing].apply(limpiar_monto)
+            df['EGR_F'] = df[c_egr].apply(limpiar_monto)
             
-            # Filtramos solo lo que tiene dinero
-            df_valido = temp_df[(temp_df['ing_f'] > 0) | (temp_df['egr_f'] > 0)].copy()
+            # Filtro: Filas que tengan un código GYP Y algún monto
+            df_valido = df[df[c_gyp].notna() & ((df['ING_F'] != 0) | (df['EGR_F'] != 0))].copy()
             
             if not df_valido.empty:
                 if moneda == "BS":
-                    df_valido['total_bs'] = df_valido['ing_f'] - df_valido['egr_f']
-                    df_valido['total_usd'] = df_valido['total_bs'] / tasa
+                    df_valido['TOTAL_USD'] = (df_valido['ING_F'] - df_valido['EGR_F']) / tasa
+                    df_valido['TOTAL_BS'] = df_valido['ING_F'] - df_valido['EGR_F']
                 else:
-                    df_valido['total_usd'] = df_valido['ing_f'] - df_valido['egr_f']
-                    df_valido['total_bs'] = df_valido['total_usd'] * tasa
+                    df_valido['TOTAL_USD'] = df_valido['ING_F'] - df_valido['EGR_F']
+                    df_valido['TOTAL_BS'] = df_valido['TOTAL_USD'] * tasa
                 
-                df_valido['banco'] = nombre_hoja
-                lista_final.append(df_valido)
+                df_valido['CUENTA_GYP'] = df_valido[c_gyp]
+                df_valido['ORIGEN'] = f"{nombre_hoja} ({moneda})"
+                # Intentamos capturar la descripción si existe
+                df_valido['DETALLE'] = df_valido[c_desc] if c_desc in df_valido.columns else "S/D"
+                
+                lista_final.append(df_valido[['CUENTA_GYP', 'DETALLE', 'TOTAL_BS', 'TOTAL_USD', 'ORIGEN']])
     
     return pd.concat(lista_final, ignore_index=True) if lista_final else pd.DataFrame()
 
 # INTERFAZ
-st.title("🏦 Dashboard Financiero Adonai")
+st.title("📊 Sistema ERP Adonai Industrial")
+st.markdown("---")
 
 with st.sidebar:
-    mes_sel = st.selectbox("Mes:", range(1, 13), index=10)
-    tasa_sel = st.number_input("Tasa:", value=45.0)
-    btn = st.button("🔄 Sincronizar")
+    st.header("Configuración de Carga")
+    mes_sel = st.selectbox("Mes de Relación:", range(1, 13), index=10)
+    tasa_sel = st.number_input("Tasa BCV (Bs/$):", value=45.0, format="%.4f")
+    if st.button("🔄 Sincronizar Datos", use_container_width=True):
+        service = conectar_drive()
+        if service:
+            with st.spinner("Leyendo códigos GYP y montos..."):
+                d_bs = leer_excel_drive(service, mes_sel, "BS")
+                d_usd = leer_excel_drive(service, mes_sel, "USD")
+                
+                res_bs = procesar_hojas(d_bs, "BS", tasa_sel)
+                res_usd = procesar_hojas(d_usd, "USD", tasa_sel)
+                
+                st.session_state.datos_acumulados = pd.concat([res_bs, res_usd], ignore_index=True)
+                if not st.session_state.datos_acumulados.empty:
+                    st.success("¡Información Contable Capturada!")
+                else:
+                    st.error("No se hallaron montos. Verifique que la columna 'GYP' y 'INGRESOS/EGRESOS' existan.")
 
-if btn:
-    service = conectar_drive()
-    if service:
-        d_bs = leer_excel_drive(service, mes_sel, "BS")
-        d_usd = leer_excel_drive(service, mes_sel, "USD")
-        
-        res_bs = procesar_hojas(d_bs, "BS", tasa_sel)
-        res_usd = procesar_hojas(d_usd, "USD", tasa_sel)
-        
-        st.session_state.datos_acumulados = pd.concat([res_bs, res_usd], ignore_index=True)
-        if not st.session_state.datos_acumulados.empty:
-            st.success(f"¡Sincronizado! {len(st.session_state.datos_acumulados)} movimientos encontrados.")
-        else:
-            st.error("No se detectaron montos. ¿Podrías confirmarme en qué columnas están los montos? (ej. Columna G y H)")
-
-# MOSTRAR
+# DASHBOARD VISUAL
 df = st.session_state.datos_acumulados
 if not df.empty:
-    i = df[df['total_usd'] > 0]['total_usd'].sum()
-    e = abs(df[df['total_usd'] < 0]['total_usd'].sum())
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Ingresos", f"$ {i:,.2f}")
-    c2.metric("Egresos", f"$ {e:,.2f}")
-    c3.metric("Saldo", f"$ {i-e:,.2f}")
-    st.dataframe(df, use_container_width=True)
+    # Métricas Principales
+    total_ing_usd = df[df['TOTAL_USD'] > 0]['TOTAL_USD'].sum()
+    total_egr_usd = abs(df[df['TOTAL_USD'] < 0]['TOTAL_USD'].sum())
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Ingresos Totales (USD)", f"$ {total_ing_usd:,.2f}")
+    col2.metric("Egresos Totales (USD)", f"$ {total_egr_usd:,.2f}")
+    col3.metric("Utilidad Operativa", f"$ {total_ing_usd - total_egr_usd:,.2f}", delta_color="normal")
+    
+    st.markdown("### 📋 Resumen por Cuentas (GYP)")
+    # Agrupamos para mostrar cuánto dinero hay por cada código de cuenta
+    resumen_gyp = df.groupby('CUENTA_GYP').agg({
+        'TOTAL_BS': 'sum',
+        'TOTAL_USD': 'sum'
+    }).reset_index()
+    
+    st.table(resumen_gyp.style.format({"TOTAL_BS": "{:,.2f}", "TOTAL_USD": "{:,.2f}"}))
+    
+    with st.expander("Ver detalle de todos los movimientos"):
+        st.dataframe(df, use_container_width=True)
+else:
+    st.info("💡 Use la barra lateral para sincronizar los archivos de Google Drive.")
