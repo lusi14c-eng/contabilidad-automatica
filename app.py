@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 import io
 import re
 
-st.set_page_config(page_title="Adonai Group - G+P Final", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Adonai Group - G+P Consolidado", layout="wide", page_icon="📈")
 
 if 'datos_acumulados' not in st.session_state:
     st.session_state.datos_acumulados = pd.DataFrame()
@@ -45,25 +45,22 @@ def limpiar_monto(valor):
     try: return float(texto)
     except: return 0.0
 
-def procesar_hojas(dict_hojas, moneda, tasa):
+def procesar_hojas(dict_hojas, moneda_archivo, tasa):
     lista_final = []
     if not dict_hojas: return pd.DataFrame()
 
     for nombre_hoja, df_raw in dict_hojas.items():
         if any(x in nombre_hoja.lower() for x in ['data', 'portada', 'resumen']): continue
         
+        # 1. Localizar cabecera por palabra 'GYP'
         idx_titulos = -1
         col_gyp_idx = -1
-        
-        # 1. Localizar GYP por contenido de celda
         for i in range(min(50, len(df_raw))):
             fila = [str(x).upper().strip() for x in df_raw.iloc[i].values]
-            for idx, celda in enumerate(fila):
-                if 'GYP' in celda:
-                    idx_titulos = i
-                    col_gyp_idx = idx
-                    break
-            if idx_titulos != -1: break
+            if 'GYP' in fila:
+                idx_titulos = i
+                col_gyp_idx = fila.index('GYP')
+                break
         
         if idx_titulos == -1: continue
 
@@ -71,80 +68,89 @@ def procesar_hojas(dict_hojas, moneda, tasa):
         df.columns = [str(c).strip().upper() for c in df.iloc[0]]
         df = df.iloc[1:].reset_index(drop=True)
         
-        # 2. Identificar columnas de montos e ignorar las que no sirven
-        c_ing = next((c for c in df.columns if 'INGRESOS' in str(c)), None)
-        c_egr = next((c for c in df.columns if 'EGRESOS' in str(c)), None)
-        c_gyp_name = df.columns[col_gyp_idx]
+        # 2. SELECCIÓN ESTRICTA DE COLUMNAS
+        # Si procesamos el archivo BS, buscamos "INGRESOS BS". Si es el de USD, buscamos "INGRESOS USD".
+        c_ing = next((c for c in df.columns if 'INGRESOS' in str(c) and moneda_archivo in str(c)), None)
+        c_egr = next((c for c in df.columns if 'EGRESOS' in str(c) and moneda_archivo in str(c)), None)
         
-        # Buscamos dinámicamente cualquier columna que parezca descripción
-        c_desc = next((c for c in df.columns if any(k in str(c) for k in ['DESC', 'CONCEPTO', 'DETALLE'])), None)
+        # Si no los encuentra con el sufijo (BS/USD), intentamos por nombre simple (pero el sufijo manda)
+        if not c_ing: c_ing = next((c for c in df.columns if 'INGRESOS' in str(c)), None)
+        if not c_egr: c_egr = next((c for c in df.columns if 'EGRESOS' in str(c)), None)
+
+        c_gyp_name = df.columns[col_gyp_idx]
+        c_desc = next((c for c in df.columns if any(k in str(c) for k in ['DESC', 'CONCEPTO'])), None)
 
         if c_ing and c_egr:
             df['I_N'] = df[c_ing].apply(limpiar_monto)
             df['E_N'] = df[c_egr].apply(limpiar_monto)
             
-            # Filtro base: GYP con datos y hay dinero moviéndose
             mask = (df[c_gyp_name].notna()) & \
                    (df[c_gyp_name].astype(str).str.strip() != '') & \
                    ((df['I_N'] != 0) | (df['E_N'] != 0))
             
-            # Filtro de seguridad por descripción (solo si existe)
-            if c_desc:
+            if c_desc and c_desc in df.columns:
                 mask = mask & (~df[c_desc].astype(str).upper().str.contains('TOTAL|SALDO|VAN|VIENEN', na=False))
 
             df_valido = df[mask].copy()
 
             if not df_valido.empty:
                 df_valido['CUENTA'] = df_valido[c_gyp_name].astype(str).str.strip()
-                df_valido['MONEDA'] = moneda
-                lista_final.append(df_valido[['CUENTA', 'MONEDA', 'I_N', 'E_N']])
+                df_valido['MONEDA_ORIGEN'] = moneda_archivo
+                lista_final.append(df_valido[['CUENTA', 'MONEDA_ORIGEN', 'I_N', 'E_N']])
     
     return pd.concat(lista_final, ignore_index=True) if lista_final else pd.DataFrame()
 
 # INTERFAZ
-st.title("📊 G+P Consolidado - Adonai Industrial")
+st.title("📈 Ganancias y Pérdidas - Consolidado Adonai")
 
 with st.sidebar:
     st.header("Sincronización")
-    mes_sel = st.selectbox("Mes de la relación:", range(1, 13), index=10)
-    tasa_sel = st.number_input("Tasa BCV ($/Bs):", value=45.0, format="%.4f")
-    if st.button("🔄 Generar Ganancia y Pérdida", use_container_width=True):
+    mes_sel = st.selectbox("Mes de Relación:", range(1, 13), index=10)
+    tasa_sel = st.number_input("Tasa BCV del Mes:", value=45.0, format="%.4f")
+    if st.button("🔄 Generar G+P Mensual"):
         service = conectar_drive()
         if service:
-            with st.spinner("Analizando códigos GYP y consolidando monedas..."):
+            with st.spinner("Procesando archivos..."):
                 d_bs = leer_excel_drive(service, mes_sel, "BS")
                 d_usd = leer_excel_drive(service, mes_sel, "USD")
                 
+                # Procesamos cada archivo por separado con su moneda
                 res_bs = procesar_hojas(d_bs, "BS", tasa_sel)
                 res_usd = procesar_hojas(d_usd, "USD", tasa_sel)
                 
                 st.session_state.datos_acumulados = pd.concat([res_bs, res_usd], ignore_index=True)
 
+# LÓGICA DE CÁLCULO G+P
 df = st.session_state.datos_acumulados
 if not df.empty:
-    # --- PROCESAMIENTO G+P ---
-    def calcular_gp(row):
-        neto = row['I_N'] - row['E_N']
-        if row['MONEDA'] == 'BS':
-            return pd.Series([neto, neto / tasa_sel], index=['NETO_BS', 'NETO_USD'])
-        else:
-            return pd.Series([neto * tasa_sel, neto], index=['NETO_BS', 'NETO_USD'])
+    # 1. Convertir todo a Bolívares primero (G+P en BS)
+    def a_bolivares(row):
+        neto_origen = row['I_N'] - row['E_N']
+        if row['MONEDA_ORIGEN'] == 'USD':
+            return neto_origen * tasa_sel
+        return neto_origen
 
-    df_gp = df.copy()
-    df_gp[['B_BS', 'B_USD']] = df_gp.apply(calcular_gp, axis=1)
+    df['NETO_BS'] = df.apply(a_bolivares, axis=1)
     
-    # Agrupación final por código GYP
-    gp_final = df_gp.groupby('CUENTA').agg({'B_BS': 'sum', 'B_USD': 'sum'}).reset_index()
+    # 2. Agrupar por cuenta contable
+    gp_bs = df.groupby('CUENTA')['NETO_BS'].sum().reset_index()
     
-    # Métricas
-    t_bs = gp_final['B_BS'].sum()
-    t_usd = gp_final['B_USD'].sum()
+    # 3. Convertir el total agrupado a Dólares
+    gp_bs['NETO_USD'] = gp_bs['NETO_BS'] / tasa_sel
     
+    # Totales Finales
+    total_mes_bs = gp_bs['NETO_BS'].sum()
+    total_mes_usd = gp_bs['NETO_USD'].sum()
+
+    st.markdown("---")
     c1, c2 = st.columns(2)
-    c1.metric("RESULTADO NETO (BS)", f"Bs. {t_bs:,.2f}")
-    c2.metric("RESULTADO NETO (USD)", f"$ {t_usd:,.2f}")
+    c1.metric("G+P TOTAL (BS)", f"Bs. {total_mes_bs:,.2f}")
+    c2.metric("G+P TOTAL (USD)", f"$ {total_mes_usd:,.2f}")
 
-    st.subheader("📋 Estado de Ganancias y Pérdidas por Código")
-    st.dataframe(gp_final.style.format({'B_BS': '{:,.2f}', 'B_USD': '{:,.2f}'}), use_container_width=True)
+    st.subheader("📋 Detalle de Cuentas (Consolidado)")
+    st.dataframe(
+        gp_bs.style.format({'NETO_BS': '{:,.2f}', 'NETO_USD': '{:,.2f}'}),
+        use_container_width=True
+    )
 else:
-    st.info("💡 Use la barra lateral para generar el reporte.")
+    st.info("💡 Seleccione el mes y la tasa para generar el Estado de Resultados.")
