@@ -64,22 +64,21 @@ def procesar_hojas(dict_hojas, moneda_archivo, tasa_cambio, mes_label):
                 lista_movimientos.append(df_valido)
     return pd.concat(lista_movimientos) if lista_movimientos else pd.DataFrame()
 
-# 3. INTERFAZ DE USUARIO (SIN ERRORES DE IDENTACIÓN)
+# 3. INTERFAZ DE USUARIO
 st.title("🏦 Adonai Industrial Group - ERP")
 
 with st.sidebar:
     st.header("⚙️ Configuración")
-    mes_num = st.selectbox("Seleccione Mes:", range(1, 13), index=10) # 10 es Noviembre
+    mes_num = st.selectbox("Seleccione Mes:", range(1, 13), index=10)
     tasa = st.number_input("Tasa de Cambio (Bs/USD):", value=45.0, step=0.1)
     
     if st.button("🔄 Sincronizar con Drive"):
         service = conectar_drive()
         if service:
-            # AJUSTE DE NOMBRES EN MAYÚSCULAS
             n_bs = f"RELACION INGRESOS Y EGRESOS {mes_num} BS"
             n_usd = f"RELACION INGRESOS Y EGRESOS {mes_num} USD"
             
-            with st.spinner(f"Buscando archivos del mes {mes_num}..."):
+            with st.spinner(f"Sincronizando mes {mes_num}..."):
                 d_bs = leer_excel_drive(service, n_bs)
                 d_usd = leer_excel_drive(service, n_usd)
                 
@@ -97,12 +96,26 @@ with st.sidebar:
                 else:
                     st.error(f"No se encontró: {n_bs} o {n_usd}")
 
-# 4. DASHBOARD
+# 4. DASHBOARD (PARTE CORREGIDA)
 if not st.session_state.datos_acumulados.empty:
     df_actual = st.session_state.datos_acumulados[st.session_state.datos_acumulados['mes_reporte'] == f"Mes {mes_num}"]
     
     if not df_actual.empty:
         c1, c2, c3 = st.columns(3)
-        # Ingresos son montos positivos en total_usd, egresos negativos
+        # Filtramos ingresos y egresos para las métricas
         ing_t = df_actual[df_actual['total_usd'] > 0]['total_usd'].sum()
-        egr_t = abs(df_actual
+        # Aquí estaba el error del paréntesis:
+        egr_t = abs(df_actual[df_actual['total_usd'] < 0]['total_usd'].sum())
+        
+        c1.metric("Ingresos (USD)", f"$ {ing_t:,.2f}")
+        c2.metric("Egresos (USD)", f"$ {egr_t:,.2f}")
+        c3.metric("Utilidad (USD)", f"$ {ing_t - egr_t:,.2f}")
+        
+        if 'gyp' in df_actual.columns:
+            st.subheader("📊 Resumen por Código GyP")
+            pyl = df_actual.groupby('gyp')[['total_bs', 'total_usd']].sum().reset_index()
+            st.dataframe(pyl, use_container_width=True)
+    else:
+        st.warning(f"No hay datos para mostrar en el Mes {mes_num}")
+else:
+    st.info("Configura los parámetros y presiona Sincronizar.")
