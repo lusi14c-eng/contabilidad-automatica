@@ -32,69 +32,75 @@ def leer_excel_drive(service, nombre_archivo):
     except:
         return None
 
-def limpiar_monto(valor):
+def limpiar_monto_extremo(valor):
+    """Limpia cualquier rastro de texto para dejar solo números."""
     if pd.isna(valor) or str(valor).strip() == '': return 0.0
+    if isinstance(valor, (int, float)): return float(valor)
+    
+    texto = str(valor).strip().lower()
+    # Quitar símbolos comunes
+    for s in ['bs', '$', '.', ' ', '\xa0']: 
+        texto = texto.replace(s, '')
+    # Cambiar coma decimal por punto si existe
+    texto = texto.replace(',', '.')
+    
     try:
-        # Quitamos todo lo que no sea número, punto o coma
-        v = str(valor).replace('Bs', '').replace('$', '').replace(' ', '').replace('.', '').replace(',', '.')
-        return float(v)
+        return float(texto)
     except:
         return 0.0
 
 def procesar_hojas(dict_hojas, moneda, tasa):
     lista_final = []
     for nombre_hoja, df_raw in dict_hojas.items():
-        if df_raw.empty or 'gyp' in nombre_hoja.lower(): continue
+        if df_raw.empty or 'gyp' in nombre_hoja.lower() or 'resumen' in nombre_hoja.lower(): 
+            continue
         
-        # 1. Encontrar la fila de títulos (buscamos 'ingreso' o 'egreso')
+        # Encontrar fila de títulos
         idx_titulos = -1
-        for i in range(min(10, len(df_raw))):
+        for i in range(min(15, len(df_raw))):
             fila = [str(x).lower() for x in df_raw.iloc[i].values]
-            if any('ingreso' in f or 'egreso' in f or 'haber' in f for f in fila):
+            if any(k in f for f in fila for k in ['ingreso', 'egreso', 'haber', 'debe']):
                 idx_titulos = i
                 break
         
         if idx_titulos == -1: continue
 
-        # 2. Limpiar DataFrame
         df = df_raw.iloc[idx_titulos:].copy()
         df.columns = [str(c).strip().lower() for c in df.iloc[0]]
         df = df.iloc[1:].reset_index(drop=True)
-        df = df.loc[:, ~df.columns.duplicated()].copy() # Eliminar columnas repetidas
+        df = df.loc[:, ~df.columns.duplicated()].copy()
 
-        # 3. Identificar columnas de dinero (muy flexible)
-        c_ing = next((c for c in df.columns if 'ingreso' in c), None)
-        c_egr = next((c for c in df.columns if 'egreso' in c or 'haber' in c), None)
+        c_ing = next((c for c in df.columns if 'ingreso' in str(c) or 'debe' in str(c)), None)
+        c_egr = next((c for c in df.columns if 'egreso' in str(c) or 'haber' in str(c)), None)
 
         if c_ing and c_egr:
-            df['ing_num'] = df[c_ing].apply(limpiar_monto)
-            df['egr_num'] = df[c_egr].apply(limpiar_monto)
+            df['ing_limpio'] = df[c_ing].apply(limpiar_monto_extremo)
+            df['egr_limpio'] = df[c_egr].apply(limpiar_monto_extremo)
             
-            # Solo filas con dinero real
-            df = df[(df['ing_num'] != 0) | (df['egr_num'] != 0)].copy()
+            # Cálculo de totales
+            if moneda == "BS":
+                df['total_bs'] = df['ing_limpio'] - df['egr_limpio']
+                df['total_usd'] = df['total_bs'] / tasa
+            else:
+                df['total_usd'] = df['ing_limpio'] - df['egr_limpio']
+                df['total_bs'] = df['total_usd'] * tasa
             
-            if not df.empty:
-                if moneda == "BS":
-                    df['total_usd'] = (df['ing_num'] - df['egr_num']) / tasa
-                    df['total_bs'] = df['ing_num'] - df['egr_num']
-                else:
-                    df['total_usd'] = df['ing_num'] - df['egr_num']
-                    df['total_bs'] = (df['ing_num'] - df['egr_num']) * tasa
-                
-                df['origen'] = f"{nombre_hoja} ({moneda})"
+            df['pestaña'] = nombre_hoja
+            df['moneda_origen'] = moneda
+            
+            # Solo añadir si hay algún valor numérico detectado
+            if df['ing_limpio'].sum() != 0 or df['egr_limpio'].sum() != 0:
                 lista_final.append(df)
-        else:
-            st.warning(f"⚠️ No encontré columnas de dinero en: {nombre_hoja}. Vistas: {list(df.columns)[:4]}")
 
     return pd.concat(lista_final, ignore_index=True) if lista_final else pd.DataFrame()
 
 # INTERFAZ
-st.title("🏦 Adonai Group - ERP Industrial")
+st.title("🏦 ERP Adonai Industrial")
 
 with st.sidebar:
     mes = st.selectbox("Mes:", range(1, 13), index=10)
     tasa = st.number_input("Tasa (Bs/$):", value=45.0)
-    if st.button("🔄 Sincronizar Todo"):
+    if st.button("🔄 Sincronizar"):
         service = conectar_drive()
         if service:
             d_bs = leer_excel_drive(service, f"RELACION INGRESOS Y EGRESOS {mes} BS.xlsx")
@@ -105,23 +111,24 @@ with st.sidebar:
             
             st.session_state.datos_acumulados = pd.concat([res_bs, res_usd], ignore_index=True)
             if not st.session_state.datos_acumulados.empty:
-                st.success("¡Datos cargados con éxito!")
+                st.success(f"¡Sincronizado! Se detectaron datos en el mes {mes}")
             else:
-                st.error("Sincronizado, pero los archivos parecen estar vacíos o mal formateados.")
+                st.warning("Archivos encontrados pero los montos parecen estar en 0 o vacíos.")
 
-# VISTA DE RESULTADOS
+# TABLERO
 df = st.session_state.datos_acumulados
 if not df.empty:
-    # Métricas
-    ing_total = df[df['total_usd'] > 0]['total_usd'].sum()
-    egr_total = abs(df[df['total_usd'] < 0]['total_usd'].sum())
+    i = df[df['total_usd'] > 0]['total_usd'].sum()
+    e = abs(df[df['total_usd'] < 0]['total_usd'].sum())
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Ingresos Totales", f"$ {ing_total:,.2f}")
-    col2.metric("Egresos Totales", f"$ {egr_total:,.2f}")
-    col3.metric("Utilidad", f"$ {ing_total - egr_total:,.2f}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Ingresos Totales", f"$ {i:,.2f}")
+    c2.metric("Egresos Totales", f"$ {e:,.2f}")
+    c3.metric("Utilidad", f"$ {i-e:,.2f}")
     
-    st.subheader("📋 Detalle de Movimientos Sincronizados")
-    st.dataframe(df, use_container_width=True)
+    st.subheader("📋 Movimientos Detectados")
+    # Mostrar solo columnas útiles para no saturar
+    cols_a_ver = [c for c in ['fecha', 'descripcion', 'concepto', 'pestaña', 'total_bs', 'total_usd'] if c in df.columns]
+    st.dataframe(df[cols_a_ver] if len(cols_a_ver) > 2 else df, use_container_width=True)
 else:
-    st.info("Sin datos. Revisa que el Mes en el selector coincida con el nombre del archivo en Drive.")
+    st.info("Sin datos. Intenta Sincronizar.")
