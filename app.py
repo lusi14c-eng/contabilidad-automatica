@@ -5,13 +5,10 @@ from googleapiclient.discovery import build
 import io
 import re
 
+# Configuración de la página
 st.set_page_config(page_title="Adonai Group - G+P Matriz", layout="wide", page_icon="📊")
 
-if 'datos_ready' not in st.session_state:
-    st.session_state.datos_ready = pd.DataFrame()
-if 'maestro_cuentas' not in st.session_state:
-    st.session_state.maestro_cuentas = {}
-
+# --- FUNCIONES DE CONEXIÓN Y LECTURA ---
 def conectar_drive():
     try:
         creds_dict = dict(st.secrets["gcp_service_account"])
@@ -35,6 +32,7 @@ def leer_excel_drive(service, mes, moneda):
             return pd.read_excel(io.BytesIO(request.execute()), sheet_name=None, header=None)
     except: return None
 
+# --- FUNCIONES DE PROCESAMIENTO ---
 def obtener_nombres_cuentas(dict_hojas):
     maestro = {}
     if not dict_hojas or 'GYP' not in dict_hojas: return maestro
@@ -66,7 +64,6 @@ def procesar_hojas(dict_hojas, tipo_moneda):
     for nombre_hoja, df_raw in dict_hojas.items():
         if any(x in nombre_hoja.lower() for x in ['portada', 'data', 'resumen', 'gyp']): continue
         
-        # Localizar columnas
         idx_gyp, idx_ing, idx_egr = -1, -1, -1
         start_row = -1
 
@@ -89,27 +86,26 @@ def procesar_hojas(dict_hojas, tipo_moneda):
                 fila = df_raw.iloc[i]
                 cod = str(fila.iloc[idx_gyp]).upper().strip()
                 if re.match(r'^[IE]\d+$', cod):
-                    # Solo sumar si no es una fila de "Total" repetida
                     m_ing = limpiar_monto(fila.iloc[idx_ing])
                     m_egr = limpiar_monto(fila.iloc[idx_egr]) if idx_egr != -1 else 0.0
                     if m_ing != 0 or m_egr != 0:
-                        lista_temp.append({
-                            'COD': cod, 
-                            'MONTO': m_ing - m_egr, 
-                            'MONEDA': tipo_moneda
-                        })
+                        lista_temp.append({'COD': cod, 'MONTO': m_ing - m_egr, 'MONEDA': tipo_moneda})
     return lista_temp
 
-# --- APP ---
-st.title("📊 Matriz de Validación G+P")
+# --- INTERFAZ DE USUARIO ---
+if 'datos_ready' not in st.session_state:
+    st.session_state.datos_ready = pd.DataFrame()
+if 'maestro_cuentas' not in st.session_state:
+    st.session_state.maestro_cuentas = {}
 
 with st.sidebar:
-    mes = st.selectbox("Mes:", range(1, 13), index=10)
-    tasa = st.number_input("Tasa:", value=45.0, format="%.4f")
-    if st.button("🔄 Generar Matriz", use_container_width=True):
+    st.header("Configuración")
+    mes = st.selectbox("Mes de Relación:", range(1, 13), index=10)
+    tasa = st.number_input("Tasa de Cambio (BS/$):", value=45.0, format="%.4f")
+    if st.button("🚀 Generar Matriz y Excel", use_container_width=True):
         service = conectar_drive()
         if service:
-            with st.spinner("Procesando..."):
+            with st.spinner("Procesando datos de Drive..."):
                 d_bs = leer_excel_drive(service, mes, "BS")
                 d_usd = leer_excel_drive(service, mes, "USD")
                 st.session_state.maestro_cuentas = obtener_nombres_cuentas(d_bs)
@@ -122,33 +118,51 @@ with st.sidebar:
                     st.session_state.datos_ready = pd.DataFrame(todos_datos)
                 else:
                     st.session_state.datos_ready = pd.DataFrame()
-                    st.warning("No se encontraron movimientos con códigos I/E.")
+                    st.warning("No se encontraron movimientos con códigos válidos.")
 
+# --- MOSTRAR RESULTADOS Y BOTÓN DE DESCARGA ---
 df = st.session_state.datos_ready
 
 if not df.empty:
-    # Agrupar por Código y Moneda
+    # 1. Crear Matriz
     matriz = df.groupby(['COD', 'MONEDA'])['MONTO'].sum().unstack(fill_value=0).reset_index()
-    
-    # Asegurar columnas
     if 'BS' not in matriz.columns: matriz['BS'] = 0.0
     if 'USD' not in matriz.columns: matriz['USD'] = 0.0
     
     matriz['CUENTA'] = matriz['COD'].map(st.session_state.maestro_cuentas).fillna("S/D")
     matriz['CONSOLIDADO_BS'] = matriz['BS'] + (matriz['USD'] * tasa)
-    
-    # Ordenar y Dividir
     matriz = matriz[['COD', 'CUENTA', 'BS', 'USD', 'CONSOLIDADO_BS']]
+
+    # 2. Visualización en Streamlit
     ing = matriz[matriz['COD'].str.startswith('I')].sort_values('COD')
     egr = matriz[matriz['COD'].str.startswith('E')].sort_values('COD')
 
     st.subheader("🟢 Ingresos Consolidados")
-    st.table(ing.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}))
+    st.dataframe(ing.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}), use_container_width=True)
     
     st.subheader("🔴 Egresos Consolidados")
-    st.table(egr.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}))
+    st.dataframe(egr.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}), use_container_width=True)
+
+    # 3. Función para exportar a Excel (aquí está lo que pediste)
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        matriz.to_excel(writer, index=False, sheet_name='G+P_Consolidado')
+        workbook  = writer.book
+        worksheet = writer.sheets['G+P_Consolidado']
+        # Dar formato de moneda a las columnas C, D y E
+        formato_moneda = workbook.add_format({'num_format': '#,##0.00'})
+        worksheet.set_column('C:E', 20, formato_moneda)
+
+    st.divider()
+    st.download_button(
+        label="📥 Descargar Reporte Completo en Excel",
+        data=buffer.getvalue(),
+        file_name=f"GP_Consolidado_Mes_{mes}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
     
     total_gral = matriz['CONSOLIDADO_BS'].sum()
     st.metric("RESULTADO DEL EJERCICIO (BS)", f"Bs. {total_gral:,.2f}")
 else:
-    st.info("A la espera de datos. Use el botón de la izquierda.")
+    st.info("A la espera de datos. Use el botón de la barra lateral.")
