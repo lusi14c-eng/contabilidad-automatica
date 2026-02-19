@@ -166,3 +166,32 @@ if not df.empty:
     st.metric("RESULTADO DEL EJERCICIO (BS)", f"Bs. {total_gral:,.2f}")
 else:
     st.info("A la espera de datos. Use el botón de la barra lateral.")
+def obtener_nombres_cuentas(dict_hojas):
+    """
+    Escanea la pestaña GYP para crear el diccionario de nombres.
+    Busca patrones tipo I001, E010 y extrae la descripción asociada.
+    """
+    maestro = {}
+    if not dict_hojas or 'GYP' not in dict_hojas:
+        return maestro
+    
+    df_gyp = dict_hojas['GYP'].astype(str) # Forzamos todo a texto para evitar errores
+    
+    for _, fila in df_gyp.iterrows():
+        lista_celdas = [c.strip() for c in fila.values if c != 'nan']
+        
+        for i, contenido in enumerate(lista_celdas):
+            # Buscamos el código (I o E seguido de números)
+            match = re.search(r'^([IE]\d+)', contenido.upper())
+            if match:
+                codigo = match.group(1)
+                # Intentamos buscar el nombre en las siguientes celdas de la misma fila
+                nombre = "Nombre no encontrado"
+                for j in range(i + 1, len(lista_celdas)):
+                    texto_candidato = lista_celdas[j]
+                    # Si la celda tiene letras y no es otro código, es el nombre
+                    if len(texto_candidato) > 3 and not re.search(r'^[IE]\d+', texto_candidato):
+                        nombre = texto_candidato
+                        break
+                maestro[codigo] = nombre
+    return maestro
