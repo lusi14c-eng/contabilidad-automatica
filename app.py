@@ -33,59 +33,68 @@ def leer_excel_drive(service, mes, moneda):
             return pd.read_excel(io.BytesIO(request.execute()), sheet_name=None, header=None)
     except: return None
 
-def limpiar_monto(valor):
+def limpiar_monto_ultra(valor):
+    """Limpia cualquier formato de número, incluyendo espacios y símbolos."""
     if pd.isna(valor) or str(valor).strip() == '': return 0.0
     if isinstance(valor, (int, float)): return float(valor)
-    texto = str(valor).upper().replace('BS', '').replace('$', '').replace(' ', '').strip()
+    
+    texto = str(valor).strip().lower()
+    # Eliminar todo lo que no sea número, coma o punto
+    texto = re.sub(r'[^0-9,.-]', '', texto)
+    
+    if not texto: return 0.0
+    
+    # Manejo de formato latino (1.500,00) vs americano (1,500.00)
     if ',' in texto and '.' in texto:
-        if texto.find('.') < texto.find(','): texto = texto.replace('.', '').replace(',', '.')
-        else: texto = texto.replace(',', '')
-    elif ',' in texto: texto = texto.replace(',', '.')
-    texto = re.sub(r'[^0-9.-]', '', texto)
-    try: return float(texto)
-    except: return 0.0
+        if texto.rfind(',') > texto.rfind('.'): # Coma es decimal
+            texto = texto.replace('.', '').replace(',', '.')
+        else: # Punto es decimal
+            texto = texto.replace(',', '')
+    elif ',' in texto: # Solo coma
+        texto = texto.replace(',', '.')
+        
+    try:
+        return float(texto)
+    except:
+        return 0.0
 
 def procesar_hojas(dict_hojas, moneda, tasa):
     lista_final = []
     if not dict_hojas: return pd.DataFrame()
 
     for nombre_hoja, df_raw in dict_hojas.items():
-        # Saltamos hojas de resumen
+        # Saltamos hojas administrativas
         if any(x in nombre_hoja.lower() for x in ['gyp', 'data', 'portada', 'hoja1']): continue
         
-        # 1. Encontrar la fila donde empiezan los datos (buscamos cualquier número)
-        idx_inicio = -1
-        for i in range(min(30, len(df_raw))):
-            # Si la fila tiene palabras como ingreso/egreso, esa es
-            fila_str = [str(x).lower() for x in df_raw.iloc[i].values]
-            if any(k in f for f in fila_str for k in ['ing', 'egr', 'hab', 'deb', 'monto']):
-                idx_inicio = i
-                break
+        # Limpiamos el dataframe de filas y columnas totalmente vacías
+        df = df_raw.dropna(how='all').dropna(axis=1, how='all')
         
-        if idx_inicio == -1: idx_inicio = 5 # Si no encuentra, asume fila 5
+        # Intentamos detectar columnas de montos escaneando el contenido
+        col_ing = None
+        col_egr = None
         
-        df = df_raw.iloc[idx_inicio:].copy()
-        df.columns = [str(c).strip().lower() for c in df.iloc[0]]
-        df = df.iloc[1:].reset_index(drop=True)
-        
-        # 2. Identificar columnas de montos por NOMBRE o por POSICIÓN
-        c_ing = next((c for c in df.columns if any(k in str(c) for k in ['ing', 'deb', 'ent'])), None)
-        c_egr = next((c for c in df.columns if any(k in str(c) for k in ['egr', 'hab', 'sal'])), None)
+        # Buscamos en las columnas de la derecha (donde suelen estar los montos)
+        for col_idx in range(len(df.columns)):
+            col_name = str(df.iloc[0, col_idx]).lower()
+            if any(k in col_name for k in ['ing', 'deb', 'ent', 'monto']): col_ing = df.columns[col_idx]
+            if any(k in col_name for k in ['egr', 'hab', 'sal']): col_egr = df.columns[col_idx]
 
-        # Si no las encuentra por nombre, intentamos por las columnas G y H (comunes en tus archivos)
-        # o simplemente las columnas 6 y 7
-        if not c_ing or not c_egr:
-            cols_disponibles = df.columns.tolist()
-            if len(cols_disponibles) >= 8:
-                c_ing = cols_disponibles[6] # Columna 7
-                c_egr = cols_disponibles[7] # Columna 8
+        # SI NO HAY NOMBRES, USAMOS POSICIÓN (Basado en el estándar de tus archivos)
+        if col_ing is None or col_egr is None:
+            # En relaciones contables, Ingreso suele ser la penúltima y Egreso la última
+            # O Ingreso columna 6 y Egreso columna 7
+            columnas = df.columns.tolist()
+            if len(columnas) >= 5:
+                col_ing = columnas[-2] # Penúltima
+                col_egr = columnas[-1] # Última
 
-        if c_ing and c_egr:
-            df['ing_f'] = df[c_ing].apply(limpiar_monto)
-            df['egr_f'] = df[c_egr].apply(limpiar_monto)
+        if col_ing is not None and col_egr is not None:
+            temp_df = df.copy()
+            temp_df['ing_f'] = temp_df[col_ing].apply(limpiar_monto_ultra)
+            temp_df['egr_f'] = temp_df[col_egr].apply(limpiar_monto_ultra)
             
-            # Filtramos filas vacías
-            df_valido = df[(df['ing_f'] != 0) | (df['egr_f'] != 0)].copy()
+            # Filtramos solo lo que tiene dinero
+            df_valido = temp_df[(temp_df['ing_f'] > 0) | (temp_df['egr_f'] > 0)].copy()
             
             if not df_valido.empty:
                 if moneda == "BS":
@@ -119,17 +128,17 @@ if btn:
         
         st.session_state.datos_acumulados = pd.concat([res_bs, res_usd], ignore_index=True)
         if not st.session_state.datos_acumulados.empty:
-            st.success("¡Datos cargados!")
+            st.success(f"¡Sincronizado! {len(st.session_state.datos_acumulados)} movimientos encontrados.")
         else:
-            st.error("No se detectaron montos numéricos en las columnas de dinero.")
+            st.error("No se detectaron montos. ¿Podrías confirmarme en qué columnas están los montos? (ej. Columna G y H)")
 
-# MOSTRAR DATOS
+# MOSTRAR
 df = st.session_state.datos_acumulados
 if not df.empty:
     i = df[df['total_usd'] > 0]['total_usd'].sum()
     e = abs(df[df['total_usd'] < 0]['total_usd'].sum())
     c1, c2, c3 = st.columns(3)
-    c1.metric("Ingresos (USD)", f"$ {i:,.2f}")
-    c2.metric("Egresos (USD)", f"$ {e:,.2f}")
-    c3.metric("Utilidad (USD)", f"$ {i-e:,.2f}")
-    st.dataframe(df[['banco', 'total_bs', 'total_usd']], use_container_width=True)
+    c1.metric("Ingresos", f"$ {i:,.2f}")
+    c2.metric("Egresos", f"$ {e:,.2f}")
+    c3.metric("Saldo", f"$ {i-e:,.2f}")
+    st.dataframe(df, use_container_width=True)
