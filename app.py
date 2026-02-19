@@ -85,29 +85,16 @@ with st.sidebar:
     mes_num = st.selectbox("Seleccione Mes:", range(1, 13), index=0)
     tasa = st.number_input("Tasa de Cambio (Bs/USD):", value=45.0, step=0.1)
     
-    if st.button("🔄 Sincronizar con Drive"):
+   if st.button("🔄 Sincronizar con Drive"):
         service = conectar_drive()
         if service:
+            # Forzamos los nombres exactos en MAYÚSCULAS como los tienes en Drive
             n_bs = f"RELACION INGRESOS Y EGRESOS {mes_num} BS"
             n_usd = f"RELACION INGRESOS Y EGRESOS {mes_num} USD"
             
-            with st.spinner("Sincronizando..."):
+            with st.spinner(f"Buscando: {n_bs} ..."):
                 d_bs = leer_excel_drive(service, n_bs)
                 d_usd = leer_excel_drive(service, n_usd)
-                
-                if d_bs and d_usd:
-                    res_bs = procesar_hojas(d_bs, "BS", tasa, f"Mes {mes_num}")
-                    res_usd = procesar_hojas(d_usd, "USD", tasa, f"Mes {mes_num}")
-                    
-                    nuevo_mes = pd.concat([res_bs, res_usd])
-                    if not st.session_state.datos_acumulados.empty:
-                        st.session_state.datos_acumulados = st.session_state.datos_acumulados[
-                            st.session_state.datos_acumulados['mes_reporte'] != f"Mes {mes_num}"
-                        ]
-                    st.session_state.datos_acumulados = pd.concat([st.session_state.datos_acumulados, nuevo_mes])
-                    st.success("Sincronización Exitosa")
-                else:
-                    st.error("No se encontraron los archivos en Drive. Verifica los nombres.")
 
 # 4. DASHBOARD
 if not st.session_state.datos_acumulados.empty:
