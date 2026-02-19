@@ -30,49 +30,52 @@ def leer_excel_drive(service, nombre_archivo):
         file_id = archivos[0]['id']
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO(request.execute())
-        
-        # Leemos el Excel sin cabeceras para procesarlo manualmente
         return pd.read_excel(fh, sheet_name=None, header=None)
     except:
         return None
+
+# TRADUCTOR DE NÚMEROS (El salvavidas)
+def limpiar_monto(valor):
+    if pd.isna(valor) or str(valor).strip() == '': return 0.0
+    if isinstance(valor, (int, float)): return float(valor)
+    
+    # Lo pasamos a texto y le quitamos todo lo que molesta
+    v = str(valor).upper().replace('BS', '').replace('$', '').replace(' ', '').replace(',', '')
+    try:
+        return float(v)
+    except:
+        return 0.0
 
 def procesar_hojas(dict_hojas, moneda_archivo, tasa_cambio, mes_label):
     lista_movimientos = []
     
     for nombre_hoja, df_raw in dict_hojas.items():
-        # 1. SALTAR HOJAS VACÍAS O DE RESUMEN
         if df_raw.empty or 'gyp' in nombre_hoja.lower() or 'resumen' in nombre_hoja.lower():
-            continue # Salta a la siguiente pestaña inmediatamente
+            continue
 
-        # 2. BUSCAR LA FILA DE TÍTULOS DE FORMA SEGURA
-        fila_titulos = -1 # Empezamos en -1 para saber si la encontramos
+        fila_titulos = -1
         for i in range(min(15, len(df_raw))):
             fila_valores = [str(val).lower().strip() for val in df_raw.iloc[i].values]
             if any('ingreso' in val for val in fila_valores) or any('egreso' in val for val in fila_valores) or any('haber' in val for val in fila_valores):
                 fila_titulos = i
                 break
         
-        # Si no encontró una fila con la palabra "ingreso" o "egreso", saltamos esta hoja
         if fila_titulos == -1:
-            st.info(f"⏭️ Omitiendo hoja '{nombre_hoja}': No tiene formato de movimientos.")
             continue
 
-        # 3. REESTRUCTURAR EL DATAFRAME
         df = df_raw.copy()
         nuevos_titulos = [str(c).strip().lower() for c in df.iloc[fila_titulos]]
         df.columns = nuevos_titulos
         df = df.iloc[fila_titulos + 1:].reset_index(drop=True)
         
-        # 4. IDENTIFICAR COLUMNAS DE DINERO
         col_ing = next((c for c in df.columns if 'ingreso' in str(c)), None)
         col_egr = next((c for c in df.columns if 'egreso' in str(c) or 'haber' in str(c)), None)
 
         if col_ing and col_egr:
-            # Convertir a números
-            df[col_ing] = pd.to_numeric(df[col_ing], errors='coerce').fillna(0)
-            df[col_egr] = pd.to_numeric(df[col_egr], errors='coerce').fillna(0)
+            # APLICAMOS EL TRADUCTOR DE NÚMEROS AQUÍ
+            df[col_ing] = df[col_ing].apply(limpiar_monto)
+            df[col_egr] = df[col_egr].apply(limpiar_monto)
             
-            # Cálculos según la moneda
             if "BS" in moneda_archivo:
                 df['total_bs'] = df[col_ing] - df[col_egr]
                 df['total_usd'] = df['total_bs'] / tasa_cambio
@@ -83,10 +86,14 @@ def procesar_hojas(dict_hojas, moneda_archivo, tasa_cambio, mes_label):
             df['banco_origen'] = nombre_hoja
             df['mes_reporte'] = mes_label
             
-            # Guardamos solo filas que tengan algún monto
+            # Guardamos filas que tengan montos. Si TODO es cero, guardamos las primeras 5 filas para que las VEAS de todos modos
             df_valido = df[(df[col_ing] != 0) | (df[col_egr] != 0)].copy()
             if not df_valido.empty:
                 lista_movimientos.append(df_valido)
+            else:
+                # Si falla el filtro, igual te muestro un pedazo de la tabla
+                st.warning(f"⚠️ La hoja '{nombre_hoja}' se leyó, pero los montos se calcularon como CERO. Mostrando vista previa cruda.")
+                lista_movimientos.append(df.head(5))
                 
     return pd.concat(lista_movimientos) if lista_movimientos else pd.DataFrame()
 
@@ -94,7 +101,6 @@ def procesar_hojas(dict_hojas, moneda_archivo, tasa_cambio, mes_label):
 st.title("🏦 Adonai Industrial Group - ERP")
 
 with st.sidebar:
-    st.header("Configuración")
     mes_num = st.selectbox("Mes a procesar:", range(1, 13), index=10)
     tasa = st.number_input("Tasa de Cambio:", value=45.0, step=0.01)
     
@@ -104,7 +110,7 @@ with st.sidebar:
             n_bs = f"RELACION INGRESOS Y EGRESOS {mes_num} BS.xlsx"
             n_usd = f"RELACION INGRESOS Y EGRESOS {mes_num} USD.xlsx"
             
-            with st.spinner("Procesando hojas y filtrando resúmenes..."):
+            with st.spinner("Procesando números..."):
                 d_bs = leer_excel_drive(service, n_bs)
                 d_usd = leer_excel_drive(service, n_usd)
                 
@@ -113,13 +119,9 @@ with st.sidebar:
                     res_usd = procesar_hojas(d_usd, "USD", tasa, f"Mes {mes_num}") if d_usd else pd.DataFrame()
                     
                     st.session_state.datos_acumulados = pd.concat([res_bs, res_usd])
-                    
-                    if not st.session_state.datos_acumulados.empty:
-                        st.success("¡Sincronización exitosa!")
-                    else:
-                        st.error("No se detectaron movimientos en las hojas procesadas.")
+                    st.success("¡Sincronización finalizada!")
                 else:
-                    st.error("No se encontraron los archivos con .xlsx en Drive.")
+                    st.error("Archivos no encontrados en Drive.")
 
 # DASHBOARD
 df = st.session_state.datos_acumulados
@@ -133,14 +135,7 @@ if not df.empty:
     c3.metric("Utilidad (USD)", f"$ {ing-egr:,.2f}")
     
     st.markdown("---")
-    st.subheader("📋 Detalle de Movimientos Detectados")
-    # Mostramos las columnas relevantes que existan
-    columnas_disponibles = [c for c in ['fecha', 'descripcion', 'concepto', 'banco_origen', 'total_bs', 'total_usd', 'gyp'] if c in df.columns]
-    
-    # Si no encuentra columnas descriptivas estándar, muestra todo
-    if len(columnas_disponibles) < 3:
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.dataframe(df[columnas_disponibles], use_container_width=True)
+    st.subheader("📋 Detalle de Movimientos")
+    st.dataframe(df, use_container_width=True)
 else:
-    st.info("💡 ERP listo. Presiona Sincronizar Drive.")
+    st.info("💡 Esperando sincronización...")
