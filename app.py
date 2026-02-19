@@ -5,9 +5,8 @@ from googleapiclient.discovery import build
 import io
 import re
 
-st.set_page_config(page_title="Adonai Group - G+P Final", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Adonai Group - G+P Consolidado", layout="wide", page_icon="📈")
 
-# Inicialización de estados
 if 'datos_ready' not in st.session_state:
     st.session_state.datos_ready = pd.DataFrame()
 if 'maestro_cuentas' not in st.session_state:
@@ -47,7 +46,6 @@ def obtener_nombres_cuentas(dict_hojas):
             if re.match(r'^[IE]\d+', celda_clean):
                 codigo = celda_clean
                 nombre = fila[idx+1].strip() if idx + 1 < len(fila) else "Sin Nombre"
-                if nombre.upper() == 'NAN': nombre = "Cuenta sin descripción"
                 maestro[codigo] = nombre
     return maestro
 
@@ -63,14 +61,14 @@ def limpiar_monto(valor):
     try: return float(texto)
     except: return 0.0
 
-def procesar_hojas(dict_hojas, tipo_archivo, tasa):
+def procesar_hojas(dict_hojas, tipo_archivo):
     datos_lista = []
     if not dict_hojas: return pd.DataFrame()
 
     for nombre_hoja, df_raw in dict_hojas.items():
         if any(x in nombre_hoja.lower() for x in ['portada', 'data', 'resumen', 'gyp']): continue
         
-        idx_gyp, idx_ing, idx_egr, idx_desc = -1, -1, -1, -1
+        idx_gyp, idx_ing, idx_egr = -1, -1, -1
         header_row = -1
 
         for i in range(min(40, len(df_raw))):
@@ -85,7 +83,6 @@ def procesar_hojas(dict_hojas, tipo_archivo, tasa):
                     if 'EGRESOS' in t:
                         if tipo_archivo == "BS" and "USD" not in t: idx_egr = idx
                         if tipo_archivo == "USD" and "USD" in t: idx_egr = idx
-                    if 'DESC' in t or 'CONCEPTO' in t: idx_desc = idx
                 break
         
         if idx_gyp == -1: continue
@@ -93,71 +90,64 @@ def procesar_hojas(dict_hojas, tipo_archivo, tasa):
         for i in range(header_row + 1, len(df_raw)):
             fila = df_raw.iloc[i]
             cod = str(fila.iloc[idx_gyp]).upper().strip()
-            
-            # FILTRO ANTI-DUPLICADOS: Solo códigos puros (evita filas de Totales)
             if re.match(r'^[IE]\d+$', cod):
-                desc_text = str(fila.iloc[idx_desc]).upper() if idx_desc != -1 else ""
-                
-                # Si la descripción dice TOTAL, saltamos para no duplicar el I002
-                if any(x in desc_text for x in ['TOTAL', 'SUBTOTAL', 'VAN', 'VIENEN']): continue
-                
                 ing = limpiar_monto(fila.iloc[idx_ing]) if idx_ing != -1 else 0.0
                 egr = limpiar_monto(fila.iloc[idx_egr]) if idx_egr != -1 else 0.0
-                
                 if ing != 0 or egr != 0:
-                    datos_lista.append({
-                        'COD': cod, 'I': ing, 'E': egr, 'MONEDA': tipo_archivo,
-                        'HOJA': nombre_hoja, 'DETALLE': desc_text
-                    })
-
+                    datos_lista.append({'COD': cod, 'MONTO': ing - egr, 'MONEDA': tipo_archivo})
     return pd.DataFrame(datos_lista)
 
-# --- UI ---
-st.title("🏦 Estado de Resultados Consolidado")
+# --- INTERFAZ ---
+st.title("🏦 Reporte de Validación G+P Consolidado")
 
 with st.sidebar:
-    mes = st.selectbox("Mes:", range(1, 13), index=10)
-    tasa = st.number_input("Tasa BCV:", value=45.0, format="%.4f")
-    
-    if st.button("🚀 Generar G+P", use_container_width=True):
+    mes = st.selectbox("Mes de Relación:", range(1, 13), index=10)
+    tasa = st.number_input("Tasa de Cambio:", value=45.0, format="%.4f")
+    if st.button("🚀 Generar Reporte", use_container_width=True):
         service = conectar_drive()
         if service:
-            with st.spinner("Sincronizando..."):
-                d_bs = leer_excel_drive(service, mes, "BS")
-                d_usd = leer_excel_drive(service, mes, "USD")
-                
-                st.session_state.maestro_cuentas = obtener_nombres_cuentas(d_bs)
-                
-                df1 = procesar_hojas(d_bs, "BS", tasa)
-                df2 = procesar_hojas(d_usd, "USD", tasa)
-                
-                st.session_state.datos_ready = pd.concat([df1, df2], ignore_index=True)
+            d_bs = leer_excel_drive(service, mes, "BS")
+            d_usd = leer_excel_drive(service, mes, "USD")
+            st.session_state.maestro_cuentas = obtener_nombres_cuentas(d_bs)
+            df_bs = procesar_hojas(d_bs, "BS")
+            df_usd = procesar_hojas(d_usd, "USD")
+            st.session_state.datos_ready = pd.concat([df_bs, df_usd], ignore_index=True)
 
 df = st.session_state.datos_ready
+if not df.empty:
+    # Crear Tabla Matriz
+    # 1. Sumar por Código y Moneda
+    matriz = df.groupby(['COD', 'MONEDA'])['MONTO'].sum().unstack(fill_value=0).reset_index()
+    
+    # Asegurar que existan ambas columnas aunque un archivo esté vacío
+    if 'BS' not in matriz: matriz['BS'] = 0.0
+    if 'USD' not in matriz: matriz['USD'] = 0.0
+    
+    # 2. Agregar Nombre de Cuenta
+    matriz['NOMBRE DE CUENTA'] = matriz['COD'].map(st.session_state.maestro_cuentas).fillna("Otras Cuentas")
+    
+    # 3. Calcular Consolidado en BS
+    matriz['CONSOLIDADO (BS)'] = matriz['BS'] + (matriz['USD'] * tasa)
+    
+    # 4. Reordenar columnas
+    matriz = matriz[['COD', 'NOMBRE DE CUENTA', 'BS', 'USD', 'CONSOLIDADO (BS)']]
+    
+    # Separar Ingresos y Egresos
+    ing = matriz[matriz['COD'].str.startswith('I')]
+    egr = matriz[matriz['COD'].str.startswith('E')]
 
-if not df.empty and 'MONEDA' in df.columns:
-    # Cálculo de Netos
-    df['NETO_BS'] = df.apply(lambda r: round(r['I'] - r['E'], 2) if r['MONEDA'] == "BS" 
-                            else round((r['I'] - r['E']) * tasa, 2), axis=1)
+    st.markdown(f"### 🗓️ Periodo: Mes {mes} | Tasa: {tasa}")
     
-    # Agrupación y Nombres
-    gp = df.groupby('COD')['NETO_BS'].sum().reset_index()
-    gp['CUENTA'] = gp['COD'].map(st.session_state.maestro_cuentas).fillna("Otras Cuentas")
-    gp['NETO_USD'] = (gp['NETO_BS'] / tasa).round(2)
+    st.success("### 🟢 INGRESOS")
+    st.dataframe(ing.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO (BS)': '{:,.2f}'}), use_container_width=True)
     
-    # Mostrar Resultados
-    st.metric("UTILIDAD NETA (BS)", f"Bs. {gp['NETO_BS'].sum():,.2f}")
-    
-    col_i, col_e = st.columns(2)
-    with col_i:
-        st.success("### 🟢 INGRESOS")
-        st.dataframe(gp[gp['COD'].str.startswith('I')][['COD', 'CUENTA', 'NETO_BS']], use_container_width=True)
-    with col_e:
-        st.error("### 🔴 EGRESOS")
-        st.dataframe(gp[gp['COD'].str.startswith('E')][['COD', 'CUENTA', 'NETO_BS']], use_container_width=True)
+    st.error("### 🔴 EGRESOS")
+    st.dataframe(egr.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO (BS)': '{:,.2f}'}), use_container_width=True)
 
-    # Auditoría I002
-    with st.expander("🔍 Auditoría I002"):
-        st.write(df[df['COD'] == 'I002'])
+    # Totales Finales
+    tot_bs = matriz['CONSOLIDADO (BS)'].sum()
+    c1, c2 = st.columns(2)
+    c1.metric("UTILIDAD NETA (BS)", f"Bs. {tot_bs:,.2f}")
+    c2.metric("UTILIDAD NETA (USD)", f"$ {tot_bs/tasa:,.2f}")
 else:
-    st.info("💡 Sincronice para ver el G+P.")
+    st.info("💡 Configure los parámetros y presione Generar Reporte.")
