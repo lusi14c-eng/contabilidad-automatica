@@ -25,6 +25,11 @@ def conectar_drive():
 
 def leer_excel_drive(service, nombre_archivo):
     try:
+        # Esto nos dirá en la consola de Streamlit qué archivos está viendo el robot
+        resultado = service.files().list(q="trashed = false", fields="files(name)").execute()
+        archivos_visibles = [f['name'] for f in resultado.get('files', [])]
+        st.write(f"🔍 Archivos que el robot puede ver: {archivos_visibles}") # Esto aparecerá en tu app
+        
         query = f"name = '{nombre_archivo}' and trashed = false"
         resultado = service.files().list(q=query, fields="files(id, name)").execute()
         archivos = resultado.get('files', [])
