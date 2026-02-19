@@ -23,19 +23,17 @@ st.markdown("""
 # 2. FUNCIONES DE CONEXIÓN A GOOGLE DRIVE
 def conectar_drive():
     try:
-        creds_info = st.secrets["gcp_service_account"]
+        # Cargamos la info de los secrets
+        creds_info = dict(st.secrets["gcp_service_account"])
+        
+        # EL TRUCO MÁGICO: Reemplazamos los saltos de línea mal pegados
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        
         creds = service_account.Credentials.from_service_account_info(creds_info)
         return build('drive', 'v3', credentials=creds)
     except Exception as e:
-        st.error(f"Error de autenticación con Google: {e}")
-        return None
-
-def leer_excel_drive(service, nombre_archivo):
-    query = f"name = '{nombre_archivo}' and trashed = false"
-    resultado = service.files().list(q=query, fields="files(id, name)").execute()
-    archivos = resultado.get('files', [])
-    
-    if not archivos:
+        st.error(f"Error de autenticación: {e}")
         return None
     
     file_id = archivos[0]['id']
