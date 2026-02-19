@@ -30,19 +30,31 @@ def leer_excel_drive(service, nombre_archivo):
         file_id = archivos[0]['id']
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO(request.execute())
-        # Probamos con header=2 (Fila 3). Si tus títulos están en la 1, cambia a header=0
-        return pd.read_excel(fh, sheet_name=None, header=2)
+        
+        # Leemos todo el libro de Excel
+        return pd.read_excel(fh, sheet_name=None, header=None) # Leemos sin cabecera primero para analizar
     except:
         return None
 
 def procesar_hojas(dict_hojas, moneda_archivo, tasa_cambio, mes_label):
     lista_movimientos = []
     
-    for nombre_hoja, df in dict_hojas.items():
-        # Limpiar nombres de columnas
-        df.columns = [str(c).strip().lower() for c in df.columns]
+    for nombre_hoja, df_raw in dict_hojas.items():
+        # BUSCAR LA FILA DE TÍTULOS AUTOMÁTICAMENTE
+        # Buscamos en las primeras 10 filas cuál contiene la palabra "ingreso" o "egreso"
+        fila_titulos = 0
+        for i in range(min(10, len(df_raw))):
+            fila_texto = " ".join(df_raw.iloc[i].astype(str).lower())
+            if 'ingreso' in fila_texto or 'egreso' in fila_texto:
+                fila_titulos = i
+                break
         
-        # Buscador de columnas
+        # Reformateamos el DF con la fila de títulos encontrada
+        df = df_raw.copy()
+        df.columns = [str(c).strip().lower() for c in df.iloc[fila_titulos]]
+        df = df.iloc[fila_titulos + 1:].reset_index(drop=True)
+        
+        # Identificar columnas de dinero
         col_ing = next((c for c in df.columns if 'ingreso' in c), None)
         col_egr = next((c for c in df.columns if 'egreso' in c or 'haber' in c), None)
 
@@ -60,10 +72,13 @@ def procesar_hojas(dict_hojas, moneda_archivo, tasa_cambio, mes_label):
             df['banco'] = nombre_hoja
             df['mes_reporte'] = mes_label
             
-            # Tomamos cualquier fila que tenga algún dato en ingreso o egreso
+            # Solo filas con montos
             df_valido = df[(df[col_ing] != 0) | (df[col_egr] != 0)].copy()
             if not df_valido.empty:
                 lista_movimientos.append(df_valido)
+        else:
+            # Si no encuentra columnas, nos avisa qué columnas vio
+            st.warning(f"En la hoja '{nombre_hoja}' no encontré columnas de Ingreso/Egreso. Columnas vistas: {list(df.columns)[:5]}")
                 
     return pd.concat(lista_movimientos) if lista_movimientos else pd.DataFrame()
 
@@ -82,19 +97,21 @@ with st.sidebar:
             d_bs = leer_excel_drive(service, n_bs)
             d_usd = leer_excel_drive(service, n_usd)
             
-            if d_bs or d_usd: # Con que encuentre uno basta
+            if d_bs or d_usd:
                 res_bs = procesar_hojas(d_bs, "BS", tasa, f"Mes {mes_num}") if d_bs else pd.DataFrame()
                 res_usd = procesar_hojas(d_usd, "USD", tasa, f"Mes {mes_num}") if d_usd else pd.DataFrame()
                 
                 st.session_state.datos_acumulados = pd.concat([res_bs, res_usd])
-                st.success("¡Sincronizado!")
+                if not st.session_state.datos_acumulados.empty:
+                    st.success("¡Sincronizado con datos!")
+                else:
+                    st.error("Archivos leídos pero están vacíos o sin columnas de dinero.")
             else:
-                st.error("No se encontraron los archivos")
+                st.error("No se encontraron los archivos .xlsx")
 
 # RESULTADOS
 df = st.session_state.datos_acumulados
 if not df.empty:
-    # Métricas
     ing = df[df['total_usd'] > 0]['total_usd'].sum()
     egr = abs(df[df['total_usd'] < 0]['total_usd'].sum())
     
@@ -105,7 +122,6 @@ if not df.empty:
     
     st.markdown("---")
     st.subheader("📋 Detalle de Movimientos")
-    # Mostramos la tabla completa para ver qué está fallando
     st.dataframe(df, use_container_width=True)
 else:
-    st.info("Sin datos. Presiona sincronizar.")
+    st.info("Sin datos cargados.")
