@@ -7,7 +7,6 @@ import re
 
 st.set_page_config(page_title="Adonai Group - G+P Final", layout="wide", page_icon="🏦")
 
-# Inicializar estado
 if 'datos_ready' not in st.session_state:
     st.session_state.datos_ready = pd.DataFrame()
 
@@ -51,10 +50,9 @@ def procesar_hojas(dict_hojas, tipo_archivo, tasa):
     if not dict_hojas: return pd.DataFrame()
 
     for nombre_hoja, df_raw in dict_hojas.items():
-        # Ignorar hojas que no son de movimientos
         if any(x in nombre_hoja.lower() for x in ['data', 'portada', 'resumen', 'gyp']): continue
         
-        # 1. Encontrar la cabecera 'GYP'
+        # 1. Encontrar la fila de cabecera 'GYP'
         idx_titulos = -1
         for i in range(min(60, len(df_raw))):
             fila = [str(x).upper().strip() for x in df_raw.iloc[i].values]
@@ -64,63 +62,63 @@ def procesar_hojas(dict_hojas, tipo_archivo, tasa):
         
         if idx_titulos == -1: continue
 
-        # 2. Preparar el DataFrame de la hoja
-        df = df_raw.iloc[idx_titulos:].copy()
-        df.columns = [str(c).strip().upper() for c in df.iloc[0]]
-        df = df.iloc[1:].reset_index(drop=True)
+        # 2. Extraer datos y limpiar nombres de columnas para detección
+        titulos = [str(t).upper().strip() for t in df_raw.iloc[idx_titulos].values]
+        df_datos = df_raw.iloc[idx_titulos+1:].reset_index(drop=True)
         
-        # 3. Identificar columnas (EVITAR INTERFERENCIA USD en archivos BS)
-        # Buscamos la columna GYP real
-        c_gyp = next((c for c in df.columns if 'GYP' == str(c)), None)
-        if not c_gyp: c_gyp = next((c for c in df.columns if 'GYP' in str(c)), None)
+        # 3. Mapeo de índices de columnas (Para evitar ValueError por nombres duplicados)
+        idx_gyp = -1
+        idx_ing = -1
+        idx_egr = -1
+        idx_desc = -1
 
-        c_ing = None
-        c_egr = None
-        
-        # Lógica de exclusión estricta
-        for col in df.columns:
-            c_str = str(col).upper()
-            if 'INGRESOS' in c_str:
-                if tipo_archivo == "BS" and "USD" not in c_str: c_ing = col
-                if tipo_archivo == "USD" and "USD" in c_str: c_ing = col
-            if 'EGRESOS' in c_str:
-                if tipo_archivo == "BS" and "USD" not in c_str: c_egr = col
-                if tipo_archivo == "USD" and "USD" in c_str: c_egr = col
-
-        # Columna de descripción (tomamos solo la primera si hay varias)
-        c_desc_list = [c for c in df.columns if any(k in str(c) for k in ['DESC', 'CONCEPTO'])]
-        c_desc = c_desc_list[0] if c_desc_list else None
-
-        if c_ing and c_egr and c_gyp:
-            # Creamos una copia limpia para trabajar
-            temp_df = pd.DataFrame()
-            temp_df['CUENTA'] = df[c_gyp].astype(str).str.strip()
-            temp_df['I_VAL'] = df[c_ing].apply(limpiar_monto)
-            temp_df['E_VAL'] = df[c_egr].apply(limpiar_monto)
-            temp_df['DETALLE'] = df[c_desc].astype(str) if c_desc else "Sin descripción"
-            temp_df['HOJA'] = nombre_hoja
-            temp_df['ORIGEN'] = tipo_archivo
-
-            # FILTRO: Solo si hay cuenta GYP y hubo movimiento de dinero
-            mask = (temp_df['CUENTA'] != 'NAN') & (temp_df['CUENTA'] != '') & \
-                   ((temp_df['I_VAL'] != 0) | (temp_df['E_VAL'] != 0))
+        for idx, t in enumerate(titulos):
+            if 'GYP' == t or 'COD' in t: idx_gyp = idx
+            if 'DESC' in t or 'CONCEPTO' in t: 
+                if idx_desc == -1: idx_desc = idx # Solo el primero
             
-            datos_lista.append(temp_df[mask])
+            # Lógica de exclusión de moneda (USD no entra en archivo BS)
+            if 'INGRESOS' in t:
+                if tipo_archivo == "BS" and "USD" not in t: idx_ing = idx
+                if tipo_archivo == "USD" and "USD" in t: idx_ing = idx
+            if 'EGRESOS' in t:
+                if tipo_archivo == "BS" and "USD" not in t: idx_egr = idx
+                if tipo_archivo == "USD" and "USD" in t: idx_egr = idx
 
-    return pd.concat(datos_lista, ignore_index=True) if datos_lista else pd.DataFrame()
+        if idx_gyp != -1 and idx_ing != -1 and idx_egr != -1:
+            # Construcción manual fila por fila para evitar errores de alineación
+            for _, row in df_datos.iterrows():
+                cod_gyp = str(row.iloc[idx_gyp]).strip()
+                # Solo procesar si hay un código GYP válido
+                if cod_gyp and cod_gyp != 'nan' and cod_gyp != 'None':
+                    ing = limpiar_monto(row.iloc[idx_ing])
+                    egr = limpiar_monto(row.iloc[idx_egr])
+                    
+                    if ing != 0 or egr != 0:
+                        desc = str(row.iloc[idx_desc]) if idx_desc != -1 else "Sin descripción"
+                        datos_lista.append({
+                            'CUENTA': cod_gyp,
+                            'I_VAL': ing,
+                            'E_VAL': egr,
+                            'DETALLE': desc,
+                            'HOJA': nombre_hoja,
+                            'ORIGEN': tipo_archivo
+                        })
 
-# --- INTERFAZ STREAMLIT ---
-st.title("📊 G+P Consolidado Preciso")
+    return pd.DataFrame(datos_lista)
+
+# --- INTERFAZ ---
+st.title("📊 G+P Real Consolidado - Adonai Industrial")
 
 with st.sidebar:
-    st.header("Configuración")
+    st.header("Sincronización de Datos")
     mes = st.selectbox("Mes de Relación:", range(1, 13), index=10)
-    tasa = st.number_input("Tasa BCV oficial:", value=45.0, format="%.4f")
+    tasa = st.number_input("Tasa BCV ($/Bs):", value=45.0, format="%.4f")
     
-    if st.button("🚀 Generar Reporte", use_container_width=True):
+    if st.button("🔄 Generar Reporte Final", use_container_width=True):
         service = conectar_drive()
         if service:
-            with st.spinner("Procesando datos de Drive..."):
+            with st.spinner("Analizando archivos en Drive..."):
                 d_bs = leer_excel_drive(service, mes, "BS")
                 d_usd = leer_excel_drive(service, mes, "USD")
                 
@@ -129,43 +127,43 @@ with st.sidebar:
                 
                 st.session_state.datos_ready = pd.concat([df_bs, df_usd], ignore_index=True)
 
-# --- PRESENTACIÓN DE RESULTADOS ---
+# --- RESULTADOS ---
 res = st.session_state.datos_ready
 
 if not res.empty:
-    # Cálculo de valores netos en BS
+    # Cálculo consolidado en BS
     def calcular_neto_bs(row):
         n = row['I_VAL'] - row['E_VAL']
         return round(n, 2) if row['ORIGEN'] == "BS" else round(n * tasa, 2)
 
     res['NETO_BS'] = res.apply(calcular_neto_bs, axis=1)
     
-    # Tabla G+P Agrupada
+    # Agrupación por código GYP
     gp_final = res.groupby('CUENTA')['NETO_BS'].sum().reset_index()
     gp_final['NETO_USD'] = (gp_final['NETO_BS'] / tasa).round(2)
     
-    # Métricas principales
+    # Métricas
     c1, c2 = st.columns(2)
     c1.metric("UTILIDAD/PÉRDIDA (BS)", f"Bs. {gp_final['NETO_BS'].sum():,.2f}")
     c2.metric("UTILIDAD/PÉRDIDA (USD)", f"$ {gp_final['NETO_USD'].sum():,.2f}")
 
-    st.subheader("📋 Estado de Resultados por Código")
+    st.subheader("📋 Resumen Consolidado por Código")
     st.dataframe(gp_final.style.format({'NETO_BS': '{:,.2f}', 'NETO_USD': '{:,.2f}'}), use_container_width=True)
 
-    # AUDITORÍA (Para revisar el caso I001)
+    # AUDITORÍA DETALLADA
     st.markdown("---")
     st.subheader("🔍 Auditoría de Movimientos")
-    cod_auditoria = st.text_input("Código a auditar (ej: I001):", value="I001")
+    cod_auditoria = st.text_input("Ingresa código para auditar (ej: I001):", value="I001")
     
     if cod_auditoria:
         detalle = res[res['CUENTA'] == cod_auditoria]
         if not detalle.empty:
-            st.write(f"Movimientos detectados para **{cod_auditoria}**:")
+            st.write(f"Movimientos detectados para el código **{cod_auditoria}**:")
             st.dataframe(detalle[['HOJA', 'ORIGEN', 'DETALLE', 'I_VAL', 'E_VAL', 'NETO_BS']])
-            suma_origen = detalle['I_VAL'].sum() - detalle['E_VAL'].sum()
-            st.info(f"Suma en moneda original: {suma_origen:,.2f}")
+            suma_i = detalle['I_VAL'].sum()
+            suma_e = detalle['E_VAL'].sum()
+            st.info(f"Totales en moneda origen para este código -> Ingresos: {suma_i:,.2f} | Egresos: {suma_e:,.2f} | Neto: {suma_i - suma_e:,.2f}")
         else:
-            st.warning("No se encontró ese código en los registros.")
-
+            st.warning(f"No se encontró el código {cod_auditoria} en la base de datos.")
 else:
-    st.info("💡 Presione el botón en la barra lateral para procesar la información.")
+    st.info("💡 Por favor, configure los datos en la barra lateral y haga clic en Generar Reporte.")
