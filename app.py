@@ -5,15 +5,16 @@ from googleapiclient.discovery import build
 import io
 import re
 
+# Configuración inicial sin errores de parámetros
 st.set_page_config(page_title="Adonai Group ERP", layout="wide", page_icon="🏦")
 
-# Estilo personalizado para que se vea mejor
+# Estilo visual corregido
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .main { background-color: #f8f9fa; }
+    div[data-testid="stMetricValue"] { font-size: 1.8rem; color: #1f77b4; }
     </style>
-    """, unsafe_content_type=True)
+    """, unsafe_allow_html=True)
 
 if 'datos_acumulados' not in st.session_state:
     st.session_state.datos_acumulados = pd.DataFrame()
@@ -45,6 +46,7 @@ def limpiar_monto(valor):
     if pd.isna(valor) or str(valor).strip() == '': return 0.0
     if isinstance(valor, (int, float)): return float(valor)
     texto = str(valor).upper().replace('BS', '').replace('$', '').replace(' ', '').strip()
+    # Estandarizar separadores: 1.500,00 -> 1500.00
     if ',' in texto and '.' in texto:
         if texto.rfind(',') > texto.rfind('.'): texto = texto.replace('.', '').replace(',', '.')
         else: texto = texto.replace(',', '')
@@ -58,66 +60,66 @@ def procesar_hojas(dict_hojas, moneda, tasa):
     if not dict_hojas: return pd.DataFrame()
 
     for nombre_hoja, df_raw in dict_hojas.items():
+        # Ignorar hojas de sistema
         if any(x in nombre_hoja.lower() for x in ['data', 'portada', 'hoja1']): continue
-        # Si es la hoja de resumen GYP, solo la usamos si tiene el detalle de movimientos
-        if nombre_hoja.lower() == 'gyp' and moneda == 'BS': continue 
-
-        # 1. Buscar la fila de encabezados que contenga 'GYP'
+        
+        # BUSCAR FILA DE TÍTULOS (Donde esté 'GYP')
         idx_titulos = -1
-        for i in range(min(40, len(df_raw))):
-            fila = [str(x).upper() for x in df_raw.iloc[i].values]
+        for i in range(min(50, len(df_raw))):
+            fila = [str(x).strip().upper() for x in df_raw.iloc[i].values]
             if 'GYP' in fila:
                 idx_titulos = i
                 break
         
         if idx_titulos == -1: continue
 
+        # Ajustar DataFrame
         df = df_raw.iloc[idx_titulos:].copy()
         df.columns = [str(c).strip().upper() for c in df.iloc[0]]
         df = df.iloc[1:].reset_index(drop=True)
         
-        # 2. Identificar columnas clave (Ingresos BS/USD, Egresos BS/USD, GYP)
+        # Identificar columnas exactas
         c_gyp = 'GYP'
-        c_ing = next((c for c in df.columns if 'INGRESOS' in c), None)
-        c_egr = next((c for c in df.columns if 'EGRESOS' in c), None)
-        c_desc = next((c for c in df.columns if 'DESCRIPCION' in c or 'CONCEPTO' in c), 'DESCRIPCION')
+        # Buscamos columnas que contengan "INGRESOS" o "EGRESOS" y la moneda
+        c_ing = next((c for c in df.columns if 'INGRESOS' in c and moneda in c), None)
+        c_egr = next((c for c in df.columns if 'EGRESOS' in c and moneda in c), None)
+        
+        # Si no las halla tan específicas, busca solo INGRESOS/EGRESOS
+        if not c_ing: c_ing = next((c for c in df.columns if 'INGRESOS' in c), None)
+        if not c_egr: c_egr = next((c for c in df.columns if 'EGRESOS' in c), None)
 
-        if c_ing and c_egr:
+        if c_ing and c_egr and c_gyp in df.columns:
             df['ING_F'] = df[c_ing].apply(limpiar_monto)
             df['EGR_F'] = df[c_egr].apply(limpiar_monto)
             
-            # Filtro: Filas que tengan un código GYP Y algún monto
+            # Filtro clave: Debe tener código GYP y algún movimiento de dinero
             df_valido = df[df[c_gyp].notna() & ((df['ING_F'] != 0) | (df['EGR_F'] != 0))].copy()
             
             if not df_valido.empty:
                 if moneda == "BS":
-                    df_valido['TOTAL_USD'] = (df_valido['ING_F'] - df_valido['EGR_F']) / tasa
-                    df_valido['TOTAL_BS'] = df_valido['ING_F'] - df_valido['EGR_F']
+                    df_valido['VALOR_USD'] = (df_valido['ING_F'] - df_valido['EGR_F']) / tasa
+                    df_valido['VALOR_BS'] = df_valido['ING_F'] - df_valido['EGR_F']
                 else:
-                    df_valido['TOTAL_USD'] = df_valido['ING_F'] - df_valido['EGR_F']
-                    df_valido['TOTAL_BS'] = df_valido['TOTAL_USD'] * tasa
+                    df_valido['VALOR_USD'] = df_valido['ING_F'] - df_valido['EGR_F']
+                    df_valido['VALOR_BS'] = df_valido['VALOR_USD'] * tasa
                 
-                df_valido['CUENTA_GYP'] = df_valido[c_gyp]
-                df_valido['ORIGEN'] = f"{nombre_hoja} ({moneda})"
-                # Intentamos capturar la descripción si existe
-                df_valido['DETALLE'] = df_valido[c_desc] if c_desc in df_valido.columns else "S/D"
-                
-                lista_final.append(df_valido[['CUENTA_GYP', 'DETALLE', 'TOTAL_BS', 'TOTAL_USD', 'ORIGEN']])
+                df_valido['CUENTA'] = df_valido[c_gyp]
+                df_valido['BANCO'] = nombre_hoja
+                lista_final.append(df_valido[['CUENTA', 'BANCO', 'VALOR_BS', 'VALOR_USD']])
     
     return pd.concat(lista_final, ignore_index=True) if lista_final else pd.DataFrame()
 
 # INTERFAZ
-st.title("📊 Sistema ERP Adonai Industrial")
-st.markdown("---")
+st.title("🏦 Dashboard Contable - Adonai Group")
 
 with st.sidebar:
-    st.header("Configuración de Carga")
-    mes_sel = st.selectbox("Mes de Relación:", range(1, 13), index=10)
-    tasa_sel = st.number_input("Tasa BCV (Bs/$):", value=45.0, format="%.4f")
-    if st.button("🔄 Sincronizar Datos", use_container_width=True):
+    st.header("Sincronización")
+    mes_sel = st.selectbox("Mes:", range(1, 13), index=10)
+    tasa_sel = st.number_input("Tasa BCV:", value=45.0)
+    if st.button("🔄 Cargar Datos"):
         service = conectar_drive()
         if service:
-            with st.spinner("Leyendo códigos GYP y montos..."):
+            with st.spinner("Procesando archivos..."):
                 d_bs = leer_excel_drive(service, mes_sel, "BS")
                 d_usd = leer_excel_drive(service, mes_sel, "USD")
                 
@@ -126,32 +128,24 @@ with st.sidebar:
                 
                 st.session_state.datos_acumulados = pd.concat([res_bs, res_usd], ignore_index=True)
                 if not st.session_state.datos_acumulados.empty:
-                    st.success("¡Información Contable Capturada!")
+                    st.success("¡Datos cargados correctamente!")
                 else:
-                    st.error("No se hallaron montos. Verifique que la columna 'GYP' y 'INGRESOS/EGRESOS' existan.")
+                    st.warning("No se encontraron registros con códigos GYP.")
 
-# DASHBOARD VISUAL
+# VISUALIZACIÓN
 df = st.session_state.datos_acumulados
 if not df.empty:
-    # Métricas Principales
-    total_ing_usd = df[df['TOTAL_USD'] > 0]['TOTAL_USD'].sum()
-    total_egr_usd = abs(df[df['TOTAL_USD'] < 0]['TOTAL_USD'].sum())
+    # Agrupación por cuenta GYP
+    resumen = df.groupby('CUENTA').agg({'VALOR_BS': 'sum', 'VALOR_USD': 'sum'}).reset_index()
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Ingresos Totales (USD)", f"$ {total_ing_usd:,.2f}")
-    col2.metric("Egresos Totales (USD)", f"$ {total_egr_usd:,.2f}")
-    col3.metric("Utilidad Operativa", f"$ {total_ing_usd - total_egr_usd:,.2f}", delta_color="normal")
+    c1, c2 = st.columns(2)
+    c1.metric("Balance Total (BS)", f"Bs. {df['VALOR_BS'].sum():,.2f}")
+    c2.metric("Balance Total (USD)", f"$ {df['VALOR_USD'].sum():,.2f}")
+
+    st.subheader("📊 Resumen por Código GYP")
+    st.dataframe(resumen.style.format({'VALOR_BS': '{:,.2f}', 'VALOR_USD': '{:,.2f}'}), use_container_width=True)
     
-    st.markdown("### 📋 Resumen por Cuentas (GYP)")
-    # Agrupamos para mostrar cuánto dinero hay por cada código de cuenta
-    resumen_gyp = df.groupby('CUENTA_GYP').agg({
-        'TOTAL_BS': 'sum',
-        'TOTAL_USD': 'sum'
-    }).reset_index()
-    
-    st.table(resumen_gyp.style.format({"TOTAL_BS": "{:,.2f}", "TOTAL_USD": "{:,.2f}"}))
-    
-    with st.expander("Ver detalle de todos los movimientos"):
+    with st.expander("Ver detalle por bancos"):
         st.dataframe(df, use_container_width=True)
 else:
-    st.info("💡 Use la barra lateral para sincronizar los archivos de Google Drive.")
+    st.info("💡 Seleccione el mes y haga clic en 'Cargar Datos'.")
