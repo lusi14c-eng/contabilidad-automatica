@@ -88,8 +88,8 @@ with st.sidebar:
     if st.button("🔄 Sincronizar con Drive"):
         service = conectar_drive()
         if service:
-            n_bs = f"relacion de ingresos y egresos {mes_num} bs"
-            n_usd = f"relacion de ingresos y egresos {mes_num} USD"
+            n_bs = f"RELACION INGRESOS Y EGRESOS {mes_num} BS"
+            n_usd = f"RELACION INGRESOS Y EGRESOS {mes_num} USD"
             
             with st.spinner("Sincronizando..."):
                 d_bs = leer_excel_drive(service, n_bs)
