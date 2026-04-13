@@ -17,6 +17,7 @@ def inicializar_db():
             tipo_contribuyente TEXT,
             categoria TEXT,
             retencion_islr_pct REAL DEFAULT 0.0
+            retencion_iva_pct REAL DEFAULT 0.0
         )
     ''')
     
