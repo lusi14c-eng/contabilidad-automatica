@@ -37,10 +37,6 @@ if check_password():
     elif menu == "Registrar Entidad":
         entidades.modulo_maestro_entidades() # Esto abre la pestaña de registro por defecto
 
-    elif menu == "Ver Clientes/Proveedores":
-        # Llamamos directamente a la función de visualización
-        entidades.ver_listado_completo()
-
     elif menu == "Registro de Compras":
         st.title("🧾 Compras")
         # Próximo paso...
