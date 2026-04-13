@@ -27,29 +27,20 @@ def check_password():
 
 # --- CUERPO DE LA APP ---
 if check_password():
-    # Configuración de la barra lateral
     st.sidebar.title("🚀 Adonai ERP")
     menu = st.sidebar.selectbox("Seleccione Módulo:", 
-        ["Dashboard", "Maestro de Entidades", "Registro de Compras", "G+P Automático (Drive)"])
+        ["Dashboard", "Registrar Entidad", "Ver Clientes/Proveedores", "Registro de Compras"])
 
-    st.sidebar.divider()
-    st.sidebar.caption("v1.0 - Adonai Group Contabilidad")
-
-    # Lógica de navegación
     if menu == "Dashboard":
-        st.title("📈 Dashboard Contable")
-        st.info("Bienvenido al sistema. Use el menú lateral para navegar.")
-        # Aquí puedes poner un resumen rápido de saldos más adelante
+        st.title("📈 Dashboard")
+        
+    elif menu == "Registrar Entidad":
+        entidades.modulo_maestro_entidades() # Esto abre la pestaña de registro por defecto
 
-    elif menu == "Maestro de Entidades":
-        # Llamamos a la función que está en modulos/entidades.py
-        entidades.modulo_maestro_entidades()
+    elif menu == "Ver Clientes/Proveedores":
+        # Llamamos directamente a la función de visualización
+        entidades.ver_listado_completo()
 
     elif menu == "Registro de Compras":
-        st.title("🧾 Libro de Compras y Retenciones")
-        st.warning("Módulo en construcción: Próximo paso en nuestro desarrollo.")
-        
-    elif menu == "G+P Automático (Drive)":
-        st.title("📊 Estado de Resultados (Drive)")
-        st.write("Sincronización con archivos de Google Drive.")
-        # Aquí pegaremos el código que lee los archivos de Bancamiga y Mercantil
+        st.title("🧾 Compras")
+        # Próximo paso...
