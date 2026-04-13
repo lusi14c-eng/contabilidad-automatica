@@ -1,4 +1,8 @@
-import streamlit as st
+from modulos import entidades  # Importas el archivo que acabamos de crear
+
+# ... dentro del bloque 'if menu == "Maestro de Entidades":'
+elif menu == "Maestro de Entidades":
+    entidades.modulo_maestro_entidades() # Llamas a la funciónimport streamlit as st
 import database
 import pandas as pd
 
