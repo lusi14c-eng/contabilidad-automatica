@@ -6,9 +6,9 @@ import io
 import re
 
 # Configuración de la página
-st.set_page_config(page_title="Adonai Group - G+P Matriz", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Adonai Group - G+P Final", layout="wide", page_icon="📊")
 
-# --- FUNCIONES DE CONEXIÓN Y LECTURA ---
+# --- CONEXIÓN A DRIVE ---
 def conectar_drive():
     try:
         creds_dict = dict(st.secrets["gcp_service_account"])
@@ -32,19 +32,34 @@ def leer_excel_drive(service, mes, moneda):
             return pd.read_excel(io.BytesIO(request.execute()), sheet_name=None, header=None)
     except: return None
 
-# --- FUNCIONES DE PROCESAMIENTO ---
+# --- EL CEREBRO: MAESTRO DE CUENTAS (CORREGIDO) ---
 def obtener_nombres_cuentas(dict_hojas):
     maestro = {}
-    if not dict_hojas or 'GYP' not in dict_hojas: return maestro
+    if not dict_hojas or 'GYP' not in dict_hojas:
+        return maestro
+    
     df_gyp = dict_hojas['GYP']
+    
     for i in range(len(df_gyp)):
-        fila = df_gyp.iloc[i].astype(str).tolist()
+        # Convertimos toda la fila a string de una vez para evitar AttributeError
+        fila = [str(x).strip() for x in df_gyp.iloc[i].values]
+        
         for idx, celda in enumerate(fila):
-            c_clean = celda.strip().upper()
-            if re.match(r'^[IE]\d+', c_clean):
-                maestro[c_clean] = fila[idx+1].strip() if idx+1 < len(fila) else "S/N"
+            celda_clean = celda.upper()
+            # Buscamos patrón I001 o E001
+            if re.match(r'^[IE]\d+', celda_clean):
+                codigo = celda_clean
+                nombre = "Sin descripción en GYP"
+                # Buscamos el primer texto largo en la misma fila (el nombre)
+                for j in range(idx + 1, len(fila)):
+                    candidato = fila[j]
+                    if candidato != 'nan' and len(candidato) > 3:
+                        nombre = candidato
+                        break
+                maestro[codigo] = nombre
     return maestro
 
+# --- LIMPIEZA DE MONTOS ---
 def limpiar_monto(valor):
     if pd.isna(valor) or str(valor).strip() == '' or str(valor).strip().upper() == 'NAN': return 0.0
     if isinstance(valor, (int, float)): return float(valor)
@@ -57,6 +72,7 @@ def limpiar_monto(valor):
     try: return float(texto)
     except: return 0.0
 
+# --- PROCESADOR DE DATOS ---
 def procesar_hojas(dict_hojas, tipo_moneda):
     lista_temp = []
     if not dict_hojas: return lista_temp
@@ -67,7 +83,7 @@ def procesar_hojas(dict_hojas, tipo_moneda):
         idx_gyp, idx_ing, idx_egr = -1, -1, -1
         start_row = -1
 
-        for i in range(min(35, len(df_raw))):
+        for i in range(min(40, len(df_raw))):
             fila = [str(x).upper().strip() for x in df_raw.iloc[i].values]
             if any(k in fila for k in ['GYP', 'COD', 'CÓDIGO']):
                 start_row = i + 1
@@ -92,106 +108,63 @@ def procesar_hojas(dict_hojas, tipo_moneda):
                         lista_temp.append({'COD': cod, 'MONTO': m_ing - m_egr, 'MONEDA': tipo_moneda})
     return lista_temp
 
-# --- INTERFAZ DE USUARIO ---
+# --- INTERFAZ ---
 if 'datos_ready' not in st.session_state:
     st.session_state.datos_ready = pd.DataFrame()
 if 'maestro_cuentas' not in st.session_state:
     st.session_state.maestro_cuentas = {}
 
 with st.sidebar:
-    st.header("Configuración")
-    mes = st.selectbox("Mes de Relación:", range(1, 13), index=10)
-    tasa = st.number_input("Tasa de Cambio (BS/$):", value=45.0, format="%.4f")
-    if st.button("🚀 Generar Matriz y Excel", use_container_width=True):
+    st.header("Control de Mando")
+    mes = st.selectbox("Mes:", range(1, 13), index=10)
+    tasa = st.number_input("Tasa BCV:", value=45.0, format="%.4f")
+    if st.button("🔄 Generar Reporte Final", use_container_width=True):
         service = conectar_drive()
         if service:
-            with st.spinner("Procesando datos de Drive..."):
+            with st.spinner("Sincronizando archivos..."):
                 d_bs = leer_excel_drive(service, mes, "BS")
                 d_usd = leer_excel_drive(service, mes, "USD")
+                
+                # Cargar el cerebro primero
                 st.session_state.maestro_cuentas = obtener_nombres_cuentas(d_bs)
                 
                 res_bs = procesar_hojas(d_bs, "BS")
                 res_usd = procesar_hojas(d_usd, "USD")
                 
-                todos_datos = res_bs + res_usd
-                if todos_datos:
-                    st.session_state.datos_ready = pd.DataFrame(todos_datos)
-                else:
-                    st.session_state.datos_ready = pd.DataFrame()
-                    st.warning("No se encontraron movimientos con códigos válidos.")
+                todos = res_bs + res_usd
+                st.session_state.datos_ready = pd.DataFrame(todos) if todos else pd.DataFrame()
 
-# --- MOSTRAR RESULTADOS Y BOTÓN DE DESCARGA ---
 df = st.session_state.datos_ready
 
 if not df.empty:
-    # 1. Crear Matriz
+    # Agrupación Matriz
     matriz = df.groupby(['COD', 'MONEDA'])['MONTO'].sum().unstack(fill_value=0).reset_index()
     if 'BS' not in matriz.columns: matriz['BS'] = 0.0
     if 'USD' not in matriz.columns: matriz['USD'] = 0.0
     
-    matriz['CUENTA'] = matriz['COD'].map(st.session_state.maestro_cuentas).fillna("S/D")
+    # Aplicar el cerebro
+    matriz['CUENTA'] = matriz['COD'].map(st.session_state.maestro_cuentas).fillna("Código no en GYP")
     matriz['CONSOLIDADO_BS'] = matriz['BS'] + (matriz['USD'] * tasa)
     matriz = matriz[['COD', 'CUENTA', 'BS', 'USD', 'CONSOLIDADO_BS']]
 
-    # 2. Visualización en Streamlit
-    ing = matriz[matriz['COD'].str.startswith('I')].sort_values('COD')
-    egr = matriz[matriz['COD'].str.startswith('E')].sort_values('COD')
-
-    st.subheader("🟢 Ingresos Consolidados")
-    st.dataframe(ing.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}), use_container_width=True)
+    # Mostrar Tablas
+    st.subheader("🟢 INGRESOS")
+    st.dataframe(matriz[matriz['COD'].str.startswith('I')].style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}), use_container_width=True)
     
-    st.subheader("🔴 Egresos Consolidados")
-    st.dataframe(egr.style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}), use_container_width=True)
+    st.subheader("🔴 EGRESOS")
+    st.dataframe(matriz[matriz['COD'].str.startswith('E')].style.format({'BS': '{:,.2f}', 'USD': '{:,.2f}', 'CONSOLIDADO_BS': '{:,.2f}'}), use_container_width=True)
 
-    # 3. Función para exportar a Excel (aquí está lo que pediste)
+    # Exportación Excel
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         matriz.to_excel(writer, index=False, sheet_name='G+P_Consolidado')
-        workbook  = writer.book
+        workbook = writer.book
         worksheet = writer.sheets['G+P_Consolidado']
-        # Dar formato de moneda a las columnas C, D y E
-        formato_moneda = workbook.add_format({'num_format': '#,##0.00'})
-        worksheet.set_column('C:E', 20, formato_moneda)
+        fmt = workbook.add_format({'num_format': '#,##0.00'})
+        worksheet.set_column('C:E', 20, fmt)
 
-    st.divider()
-    st.download_button(
-        label="📥 Descargar Reporte Completo en Excel",
-        data=buffer.getvalue(),
-        file_name=f"GP_Consolidado_Mes_{mes}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
-    )
+    st.download_button("📥 Descargar Reporte en Excel", buffer.getvalue(), f"GP_Mes_{mes}.xlsx", "application/vnd.ms-excel", use_container_width=True)
     
-    total_gral = matriz['CONSOLIDADO_BS'].sum()
-    st.metric("RESULTADO DEL EJERCICIO (BS)", f"Bs. {total_gral:,.2f}")
+    st.metric("UTILIDAD FINAL (BS)", f"Bs. {matriz['CONSOLIDADO_BS'].sum():,.2f}")
 else:
-    st.info("A la espera de datos. Use el botón de la barra lateral.")
-def obtener_nombres_cuentas(dict_hojas):
-    """
-    Escanea la pestaña GYP para crear el diccionario de nombres.
-    Busca patrones tipo I001, E010 y extrae la descripción asociada.
-    """
-    maestro = {}
-    if not dict_hojas or 'GYP' not in dict_hojas:
-        return maestro
-    
-    df_gyp = dict_hojas['GYP'].astype(str) # Forzamos todo a texto para evitar errores
-    
-    for _, fila in df_gyp.iterrows():
-        lista_celdas = [c.strip() for c in fila.values if c != 'nan']
-        
-        for i, contenido in enumerate(lista_celdas):
-            # Buscamos el código (I o E seguido de números)
-            match = re.search(r'^([IE]\d+)', contenido.upper())
-            if match:
-                codigo = match.group(1)
-                # Intentamos buscar el nombre en las siguientes celdas de la misma fila
-                nombre = "Nombre no encontrado"
-                for j in range(i + 1, len(lista_celdas)):
-                    texto_candidato = lista_celdas[j]
-                    # Si la celda tiene letras y no es otro código, es el nombre
-                    if len(texto_candidato) > 3 and not re.search(r'^[IE]\d+', texto_candidato):
-                        nombre = texto_candidato
-                        break
-                maestro[codigo] = nombre
-    return maestro
+    st.info("💡 Presione el botón en la barra lateral para procesar.")
