@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 import io
 import re
 
-# 1. Función de Seguridad
+# 1. Función de Seguridad con Identidad Visual
 def check_password():
     def password_entered():
         if "auth" in st.secrets and st.session_state["password"] == st.secrets["auth"]["password"]:
@@ -15,19 +15,37 @@ def check_password():
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        st.text_input("Contraseña de acceso:", type="password", on_change=password_entered, key="password")
+        # Título centrado y elegante para la bienvenida
+        st.markdown("<h1 style='text-align: center;'>🔐 Acceso a Herramienta Contable</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: gray;'>Adonai Group</h3>", unsafe_allow_html=True)
+        st.divider()
+        
+        # Formulario de login centrado
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("Introduzca la contraseña de seguridad:", type="password", on_change=password_entered, key="password")
         return False
+        
     elif not st.session_state["password_correct"]:
-        st.text_input("Contraseña incorrecta. Intente de nuevo:", type="password", on_change=password_entered, key="password")
-        st.error("😕 Acceso denegado")
+        st.markdown("<h1 style='text-align: center;'>🔐 Acceso a Herramienta Contable</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: gray;'>Adonai Group</h3>", unsafe_allow_html=True)
+        st.divider()
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.text_input("Contraseña incorrecta. Intente de nuevo:", type="password", on_change=password_entered, key="password")
+            st.error("😕 Acceso denegado. Verifique sus credenciales.")
         return False
     return True
 
-# 2. Configuración de página (Debe ir después de los imports)
-st.set_page_config(page_title="Adonai Group - G+P Final", layout="wide", page_icon="🔒")
+# 2. Configuración de página
+st.set_page_config(page_title="Adonai Group - Contabilidad", layout="wide", page_icon="🏦")
 
-# --- SOLO SI LA CONTRASEÑA ES CORRECTA ---
+# --- LÓGICA PRINCIPAL ---
 if check_password():
+    # Aquí empieza tu aplicación normal
+    st.title("🏦 Herramienta Contable Adonai Group")
+    st.subheader("Consolidación de Estado de Resultados (G+P)")
+    st.divider()
     
     # --- FUNCIONES DE DRIVE Y PROCESAMIENTO ---
     def conectar_drive():
