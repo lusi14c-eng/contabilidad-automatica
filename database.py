@@ -1,14 +1,13 @@
 import sqlite3
 
 def conectar():
-    conn = sqlite3.connect('adonai_erp.db', check_same_thread=False)
-    return conn
+    return sqlite3.connect('adonai_erp.db', check_same_thread=False)
 
 def inicializar_db():
     conn = conectar()
     c = conn.cursor()
     
-    # Tabla de Entidades (Clientes y Proveedores)
+    # 1. Crear tabla si no existe (con estructura base)
     c.execute('''
         CREATE TABLE IF NOT EXISTS entidades (
             rif TEXT PRIMARY KEY,
@@ -17,11 +16,17 @@ def inicializar_db():
             tipo_contribuyente TEXT,
             categoria TEXT,
             retencion_islr_pct REAL DEFAULT 0.0
-            retencion_iva_pct REAL DEFAULT 0.0
         )
     ''')
     
-    # Tabla de Facturas de Compra
+    # 2. TRUCO MÁGICO: Intentar agregar la columna de IVA por si no existe
+    try:
+        c.execute('ALTER TABLE entidades ADD COLUMN retencion_iva_pct REAL DEFAULT 0.0')
+    except sqlite3.OperationalError:
+        # Si da error es porque la columna ya existe, así que no hacemos nada
+        pass
+
+    # 3. Tabla de Compras
     c.execute('''
         CREATE TABLE IF NOT EXISTS compras (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +38,7 @@ def inicializar_db():
             base_imponible REAL DEFAULT 0.0,
             iva_monto REAL DEFAULT 0.0,
             islr_retenido REAL DEFAULT 0.0,
+            iva_retenido REAL DEFAULT 0.0,
             total_factura REAL,
             FOREIGN KEY (rif_proveedor) REFERENCES entidades (rif)
         )
