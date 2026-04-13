@@ -29,7 +29,7 @@ def check_password():
 if check_password():
     st.sidebar.title("🚀 Adonai ERP")
     menu = st.sidebar.selectbox("Seleccione Módulo:", 
-        ["Dashboard", "Registrar Entidad", "Ver Clientes/Proveedores", "Registro de Compras"])
+        ["Dashboard", "Registrar Entidad", "Registro de Compras"])
 
     if menu == "Dashboard":
         st.title("📈 Dashboard")
