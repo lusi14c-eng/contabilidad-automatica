@@ -1,4 +1,46 @@
 import streamlit as st
+
+def check_password():
+    """Retorna True si el usuario introdujo la contraseña correcta."""
+
+    def password_entered():
+        """Revisa si la contraseña coincide."""
+        if st.session_state["password"] == st.secrets["auth"]["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Elimina la contraseña de session_state
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # Primera vez que se accede, mostrar formulario
+        st.text_input(
+            "Introduzca la contraseña de acceso:", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # Contraseña incorrecta, reintentar
+        st.text_input(
+            "Contraseña incorrecta. Intente de nuevo:", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        st.error("😕 Acceso denegado")
+        return False
+    else:
+        # Contraseña correcta
+        return True
+
+# --- LÓGICA PRINCIPAL ---
+if check_password():
+    # TODO EL CÓDIGO DE TU APLICACIÓN VA AQUÍ ADENTRO
+    st.title("🔓 Acceso Concedido")
+    st.write("Bienvenido a Adonai Group. Aquí están tus reportes...")
+    
+    # Aquí pegas todo lo que ya hemos programado (conectar_drive, procesar_hojas, etc.)import streamlit as st
 import pandas as pd
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
