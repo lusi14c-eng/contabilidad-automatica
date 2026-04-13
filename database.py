@@ -22,6 +22,8 @@ def inicializar_db():
     # 2. TRUCO MÁGICO: Intentar agregar la columna de IVA por si no existe
     try:
         c.execute('ALTER TABLE entidades ADD COLUMN retencion_iva_pct REAL DEFAULT 0.0')
+        c.execute('ALTER TABLE entidades ADD COLUMN tipo_persona TEXT DEFAULT "Jurídica Domiciliada"')
+        c.execute('ALTER TABLE entidades ADD COLUMN retencion_iva_pct REAL DEFAULT 0.0')
     except sqlite3.OperationalError:
         # Si da error es porque la columna ya existe, así que no hacemos nada
         pass
