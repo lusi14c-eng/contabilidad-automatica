@@ -71,11 +71,15 @@ def inicializar_db():
         c.close()
         conn.close()
 
+# Asegúrate de que tu función obtener_configuracion_empresa en database.py se vea así:
 def obtener_configuracion_empresa():
     try:
         conn = conectar()
         c = conn.cursor()
-        c.execute("SELECT nombre_empresa, rif_empresa, direccion_empresa, ut_valor, factor_sustraendo, tipo_contribuyente FROM configuracion WHERE id = 1")
+        # Traemos todos los campos necesarios de la tabla configuracion
+        c.execute("""SELECT nombre_empresa, rif_empresa, direccion_empresa, 
+                            ut_valor, factor_sustraendo, tipo_contribuyente 
+                     FROM configuracion WHERE id = 1""")
         res = c.fetchone()
         conn.close()
         if res:
@@ -85,10 +89,7 @@ def obtener_configuracion_empresa():
                 "direccion": res[2], 
                 "ut_valor": float(res[3]), 
                 "factor_sustraendo": float(res[4]),
-                "tipo_contribuyente": res[5]
+                "tipo_contribuyente": res[5] # 'Especial', 'Ordinario' o 'Formal'
             }
     except Exception as e:
-        return {
-            "nombre": "ADONAI ERP", "rif": "J-00000000-0", "direccion": "N/A", 
-            "ut_valor": 0.0, "factor_sustraendo": 83.3334, "tipo_contribuyente": "Ordinario"
-        }
+        return {"tipo_contribuyente": "Ordinario", "ut_valor": 0.0}
