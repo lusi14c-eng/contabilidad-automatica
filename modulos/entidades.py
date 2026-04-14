@@ -36,7 +36,7 @@ def modulo_maestro_entidades():
                     conn = database.conectar()
                     c = conn.cursor()
                     # VERIFICACIÓN DE DUPLICADOS
-                    c.execute("SELECT rif FROM entidades WHERE rif = ?", (rif_codigo,))
+                    c.execute("SELECT rif FROM entidades WHERE rif = %s", (rif_codigo,))
                     if c.fetchone():
                         st.warning(f"⚠️ El RIF {rif_codigo} ya está registrado como '{nombre}'. No se duplicará.")
                     else:
