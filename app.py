@@ -3,13 +3,13 @@ import database
 import pandas as pd
 from modulos import entidades, compras
 
-# 1. Configuración de página (Siempre de primero)
+# 1. Configuración de página
 st.set_page_config(page_title="Adonai ERP", layout="wide")
 
 # 2. Inicializar base de datos
 database.inicializar_db()
 
-# --- 3. FUNCIONES DE GESTIÓN (Perfil y Usuarios) ---
+# --- 3. FUNCIONES DE GESTIÓN ---
 
 def modulo_perfil():
     st.title("🔐 Configuración de Perfil")
@@ -44,8 +44,6 @@ def modulo_gestion_usuarios():
                 conn.close()
                 st.success(f"Usuario {u} creado")
 
-# --- 4. SISTEMA DE LOGIN ---
-
 def check_password():
     if "usuario_autenticado" not in st.session_state:
         st.markdown("<h2 style='text-align: center;'>🔐 Acceso Adonai ERP</h2>", unsafe_allow_html=True)
@@ -53,7 +51,7 @@ def check_password():
             user = st.text_input("Usuario")
             pw = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar"):
-                conn = database.conectar() # Asegúrate que en database.py se llame conectar()
+                conn = database.conectar()
                 c = conn.cursor()
                 c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND password = %s", (user, pw))
                 res = c.fetchone()
@@ -67,15 +65,14 @@ def check_password():
         return False
     return True
 
-# --- 5. CUERPO PRINCIPAL ---
+# --- 4. CUERPO PRINCIPAL ---
 
 if check_password():
-    # BARRA LATERAL
     st.sidebar.title("🚀 Adonai ERP")
     st.sidebar.write(f"👤 Usuario: **{st.session_state['usuario_autenticado']}**")
     
     opciones = ["Dashboard", "Registrar Entidad", "Registro de Compras", "Configuración de Perfil"]
-    if st.session_state["rol"] == "admin":
+    if st.session_state.get("rol") == "admin":
         opciones.append("Gestión de Usuarios")
     
     menu = st.sidebar.selectbox("Seleccione Módulo:", opciones)
@@ -84,7 +81,6 @@ if check_password():
         del st.session_state["usuario_autenticado"]
         st.rerun()
 
-    # NAVEGACIÓN DE MÓDULOS
     if menu == "Dashboard":
         st.title("📈 Dashboard")
         st.write(f"Bienvenido, {st.session_state['usuario_autenticado']}.")
