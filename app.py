@@ -55,6 +55,56 @@ def modulo_gestion_usuarios():
     df_u = pd.read_sql("SELECT username as \"Usuario\", rol as \"Rol\" FROM usuarios", conn)
     conn.close()
     st.dataframe(df_u, use_container_width=True)
+    
+def modulo_contabilidad():
+    st.title("📑 Gestión Contable y Configuración de Gastos")
+    
+    tab1, tab2 = st.tabs(["🗂️ Plan de Cuentas", "🏷️ Subtipos de Compra"])
+    
+    with tab1:
+        st.subheader("Registrar Cuenta Contable")
+        with st.form("nueva_cuenta"):
+            col1, col2 = st.columns(2)
+            cod = col1.text_input("Código (Ej: 6.1.01.001)")
+            nom = col2.text_input("Nombre de la Cuenta")
+            tipo = st.selectbox("Tipo", ["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso"])
+            if st.form_submit_button("Guardar Cuenta"):
+                conn = database.conectar()
+                c = conn.cursor()
+                c.execute("INSERT INTO cuentas_contables (codigo, nombre, tipo) VALUES (%s, %s, %s) ON CONFLICT (codigo) DO NOTHING", (cod, nom, tipo))
+                conn.commit()
+                conn.close()
+                st.success("Cuenta registrada.")
+        
+        # Listado de cuentas
+        conn = database.conectar()
+        df_c = pd.read_sql("SELECT codigo, nombre, tipo FROM cuentas_contables ORDER BY codigo", conn)
+        conn.close()
+        st.dataframe(df_c, use_container_width=True)
+
+    with tab2:
+        st.subheader("Definir Subtipos de Gasto/Compra")
+        st.info("Aquí defines categorías como 'Papelería' y la asocias a una cuenta contable.")
+        
+        conn = database.conectar()
+        cuentas_df = pd.read_sql("SELECT codigo, nombre FROM cuentas_contables", conn)
+        
+        with st.form("nuevo_subtipo"):
+            nom_sub = st.text_input("Nombre del Subtipo (Ej: Honorarios, Repuestos, Alquiler)")
+            dict_c = {f"{r['codigo']} - {r['nombre']}": r['codigo'] for _, r in cuentas_df.iterrows()}
+            cuenta_asig = st.selectbox("Cuenta Contable Asociada", list(dict_c.keys()))
+            
+            if st.form_submit_button("Crear Subtipo"):
+                c = conn.cursor()
+                c.execute("INSERT INTO compra_subtipos (nombre, cuenta_codigo) VALUES (%s, %s)", (nom_sub, dict_c[cuenta_asig]))
+                conn.commit()
+                st.success(f"Subtipo '{nom_sub}' creado exitosamente.")
+        
+        # Listado de subtipos
+        df_s = pd.read_sql("""SELECT s.nombre as "Subtipo", s.cuenta_codigo as "Código Cuenta", c.nombre as "Cuenta" 
+                             FROM compra_subtipos s JOIN cuentas_contables c ON s.cuenta_codigo = c.codigo""", conn)
+        conn.close()
+        st.table(df_s)
 
 def modulo_configuracion_sistema():
     st.title("⚙️ Configuración del Sistema")
