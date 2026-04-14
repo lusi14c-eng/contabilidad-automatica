@@ -27,7 +27,7 @@ def inicializar_db():
             base_imponible DECIMAL, iva_monto DECIMAL, islr_retenido DECIMAL, 
             iva_retenido DECIMAL, total_factura DECIMAL, subtipo TEXT)''')
 
-        # 3. TABLAS DE CONTABILIDAD (NUEVAS)
+        # 3. TABLAS DE CONTABILIDAD
         c.execute('''CREATE TABLE IF NOT EXISTS cuentas_contables (
             codigo TEXT PRIMARY KEY, nombre TEXT NOT NULL, tipo TEXT)''')
 
@@ -50,11 +50,13 @@ def inicializar_db():
         conn.commit()
         c.close()
         conn.close()
-     def obtener_configuracion_empresa():
+
+# ESTA FUNCIÓN DEBE IR AQUÍ, FUERA DE LA ANTERIOR Y SIN ESPACIOS AL INICIO
+def obtener_configuracion_empresa():
     return {
-        "nombre": "ADONAI GROUP, C.A.",  # <--- Cambia esto por tu nombre real
-        "rif": "J-00000000-0",           # <--- Cambia esto por tu RIF real
+        "nombre": "ADONAI GROUP, C.A.", 
+        "rif": "J-00000000-0",           
         "direccion": "Valencia, Venezuela",
-        "ut_valor": 9.00,                # <--- Valor de la Unidad Tributaria
-        "factor_sustraendo": 0.25         # <--- Factor de ley (0.25 UT)
+        "ut_valor": 9.00,                
+        "factor_sustraendo": 0.25         
     }
