@@ -28,30 +28,31 @@ def inicializar_db():
 
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (username TEXT PRIMARY KEY, password TEXT, rol TEXT)")
 
-        # Tabla de Configuración con tipo_contribuyente
+        # Tabla de Configuración
         c.execute('''CREATE TABLE IF NOT EXISTS configuracion (
             id INTEGER PRIMARY KEY DEFAULT 1,
             nombre_empresa TEXT,
             rif_empresa TEXT,
             direccion_empresa TEXT,
-            ut_valor DECIMAL,
+            ut_valor DECIMAL DEFAULT 9.00,
             factor_sustraendo DECIMAL DEFAULT 83.3334,
             tipo_contribuyente TEXT DEFAULT 'Ordinario'
         )''')
 
-        # FORZAR la columna si no existe (para evitar el error que tuviste)
+        # Forzar columna nueva por si acaso
         try:
             c.execute("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS tipo_contribuyente TEXT DEFAULT 'Ordinario'")
         except:
             pass
 
-        # Datos iniciales
+        # Datos iniciales si está vacía
         c.execute("SELECT COUNT(*) FROM configuracion")
         if c.fetchone()[0] == 0:
             c.execute("""INSERT INTO configuracion (nombre_empresa, rif_empresa, direccion_empresa, ut_valor, tipo_contribuyente) 
                          VALUES (%s, %s, %s, %s, %s)""", 
                       ('ADONAI INDUSTRIAL GROUP, C.A.', 'J-00000000-0', 'Valencia, Venezuela', 9.00, 'Ordinario'))
 
+        # Usuarios iniciales
         usuarios = [('lgonzalez', 'Adonai.2024', 'admin'), ('jmoreno', 'Adonai.2024', 'usuario')]
         for u, p, r in usuarios:
             c.execute("INSERT INTO usuarios (username, password, rol) VALUES (%s, %s, %s) ON CONFLICT (username) DO NOTHING", (u, p, r))
@@ -67,9 +68,17 @@ def obtener_configuracion_empresa():
         c.execute("SELECT nombre_empresa, rif_empresa, direccion_empresa, ut_valor, factor_sustraendo, tipo_contribuyente FROM configuracion WHERE id = 1")
         res = c.fetchone()
         conn.close()
-        return {
-            "nombre_empresa": res[0], "rif_empresa": res[1], "direccion_empresa": res[2], 
-            "ut_valor": float(res[3]), "factor_sustraendo": float(res[4]), "tipo_contribuyente": res[5]
-        }
+        if res:
+            return {
+                "nombre_empresa": res[0], 
+                "rif_empresa": res[1], 
+                "direccion_empresa": res[2], 
+                "ut_valor": float(res[3]), 
+                "factor_sustraendo": float(res[4]), 
+                "tipo_contribuyente": res[5]
+            }
     except:
-        return {"nombre_empresa": "Error", "ut_valor": 9.0, "tipo_contribuyente": "Ordinario", "factor_sustraendo": 83.3334}
+        return {
+            "nombre_empresa": "ADONAI ERP", "rif_empresa": "J-00000000-0", "direccion_empresa": "N/A", 
+            "ut_valor": 9.0, "factor_sustraendo": 83.3334, "tipo_contribuyente": "Ordinario"
+        }
