@@ -41,14 +41,31 @@ def modulo_maestro_entidades():
                         st.warning(f"⚠️ El RIF {rif_codigo} ya está registrado como '{nombre}'. No se duplicará.")
                     else:
                         try:
-                            c.execute('''INSERT INTO entidades VALUES (?,?,?,?,?,?,?,?)''', 
-                                    (rif_codigo, nombre, direccion, tipo_persona, tipo_c, categoria, islr_pct, iva_pct))
-                            conn.commit()
-                            st.success(f"🎊 Entidad {nombre} creada con éxito.")
-                            st.balloons()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-                    conn.close()
+            conn = database.conectar()
+            c = conn.cursor()
+            
+            # 1. Definimos el query (AFUERA del execute)
+            query = """
+                INSERT INTO entidades (rif, nombre, direccion, tipo_persona, 
+                tipo_contribuyente, categoria, retencion_islr_pct, retencion_iva_pct)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            
+            # 2. Definimos los valores (AFUERA del execute)
+            valores = (rif, nombre, direccion, tipo_persona, tipo_contribuyente, 
+                       categoria, retencion_islr, retencion_iva)
+            
+            # 3. Ejecutamos pasando las dos variables
+            c.execute(query, valores)
+            
+            conn.commit()
+            st.success(f"✅ Entidad {nombre} registrada con éxito")
+            c.close()
+            conn.close()
+            st.rerun() # Para limpiar el formulario
+            
+        except Exception as e:
+            st.error(f"Error al guardar: {e}")
 
     with tab2:
         ver_listado_completo()
