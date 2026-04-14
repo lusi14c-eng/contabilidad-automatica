@@ -1,12 +1,12 @@
 import streamlit as st
 import database
 import pandas as pd
-from modulos import entidades  # Importamos el módulo que creaste
+from modulos import entidades, compras  # <--- 1. ASEGÚRATE DE IMPORTAR 'compras'
 
 # Inicializar base de datos al arrancar
 database.inicializar_db()
 
-# --- SEGURIDAD ---
+# --- SEGURIDAD (Se mantiene igual) ---
 def check_password():
     def password_entered():
         if "auth" in st.secrets and st.session_state["password"] == st.secrets["auth"]["password"]:
@@ -33,10 +33,11 @@ if check_password():
 
     if menu == "Dashboard":
         st.title("📈 Dashboard")
+        st.write("Bienvenido al sistema contable de Adonai Group.")
         
     elif menu == "Registrar Entidad":
-        entidades.modulo_maestro_entidades() # Esto abre la pestaña de registro por defecto
+        entidades.modulo_maestro_entidades()
 
     elif menu == "Registro de Compras":
-        st.title("🧾 Compras")
-        # Próximo paso...
+        # --- 2. AQUÍ LLAMAMOS A LA FUNCIÓN QUE ESTÁ EN modulos/compras.py ---
+        compras.modulo_compras()
