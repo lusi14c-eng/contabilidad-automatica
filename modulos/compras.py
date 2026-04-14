@@ -111,3 +111,13 @@ def modulo_compras():
                 st.download_button("📥 Descargar Excel", output.getvalue(), f"Libro_{mes}_{año}.xlsx")
             else:
                 st.info("Sin registros.")
+                # Lógica para el sustraendo (Simplificada)
+          datos_mi_empresa = database.obtener_datos_empresa()
+          ut = datos_mi_empresa["ut"]
+
+          # Si es Persona Natural Residente y el código es de honorarios (ejemplo)
+         if tipo_persona_proveedor == "Natural Residente" and aplica_islr:
+         sustraendo = (ut * 0.25) * (tasa / 100) # O la fórmula que aplique según la tabla
+         islr_retenido = round((base_imponible * (tasa / 100)) - sustraendo, 2)
+        else:
+        islr_retenido = round(base_imponible * (tasa / 100), 2)
