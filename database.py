@@ -24,6 +24,8 @@ def inicializar_db():
         c.execute('ALTER TABLE entidades ADD COLUMN retencion_iva_pct REAL DEFAULT 0.0')
         c.execute('ALTER TABLE entidades ADD COLUMN tipo_persona TEXT DEFAULT "Jurídica Domiciliada"')
         c.execute('ALTER TABLE entidades ADD COLUMN retencion_iva_pct REAL DEFAULT 0.0')
+        c.execute('ALTER TABLE compras ADD COLUMN aplica_ret_islr INTEGER DEFAULT 1')
+        c.execute('ALTER TABLE compras ADD COLUMN aplica_ret_iva INTEGER DEFAULT 1')
     except sqlite3.OperationalError:
         # Si da error es porque la columna ya existe, así que no hacemos nada
         pass
