@@ -28,6 +28,19 @@ def inicializar_db():
 
         c.execute("CREATE TABLE IF NOT EXISTS usuarios (username TEXT PRIMARY KEY, password TEXT, rol TEXT)")
 
+       # 1. Tabla de Subtipos de Compra (Categorías)
+       c.execute('''CREATE TABLE IF NOT EXISTS compra_subtipos (
+          id SERIAL PRIMARY KEY,
+          nombre TEXT UNIQUE NOT NULL,
+          cuenta_codigo TEXT REFERENCES cuentas_contables(codigo)
+     )''')
+
+# 2. Insertar algunos por defecto si la tabla está vacía
+c.execute("SELECT COUNT(*) FROM compra_subtipos")
+if c.fetchone()[0] == 0:
+    # Estos se insertarán solo si ya creaste las cuentas contables
+    # Por ahora, los dejaremos para crear desde la interfaz
+    pass
         # Tabla de Configuración
         c.execute('''CREATE TABLE IF NOT EXISTS configuracion (
             id INTEGER PRIMARY KEY DEFAULT 1,
