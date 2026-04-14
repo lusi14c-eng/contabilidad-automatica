@@ -13,35 +13,50 @@ database.inicializar_db()
 
 def modulo_configuracion_sistema():
     st.title("⚙️ Configuración del Sistema")
+    # Obtenemos los datos (Asegúrate que database.py use estos mismos nombres)
     conf = database.obtener_configuracion_empresa()
     
-    with st.form("form_config"):
+    with st.form("form_configuracion_global"):
         st.subheader("Datos de la Empresa")
         col1, col2 = st.columns(2)
         with col1:
-            nombre = st.text_input("Razón Social", value=conf['nombre'])
-            rif = st.text_input("RIF Empresa", value=conf['rif'])
+            # Cambiamos conf['nombre'] por conf['nombre_empresa'] para evitar el KeyError
+            nombre = st.text_input("Razón Social", value=conf.get('nombre_empresa', conf.get('nombre', '')))
+            rif = st.text_input("RIF Empresa", value=conf.get('rif_empresa', conf.get('rif', '')))
+            t_contribuyente = st.selectbox("Tu Tipo de Contribuyente", 
+                                          ["Especial", "Ordinario", "Formal"], 
+                                          index=["Especial", "Ordinario", "Formal"].index(conf.get('tipo_contribuyente', 'Ordinario')))
         with col2:
-            dir_f = st.text_area("Dirección Fiscal", value=conf['direccion'])
+            dir_f = st.text_area("Dirección Fiscal", value=conf.get('direccion_empresa', conf.get('direccion', '')))
         
         st.divider()
         st.subheader("Parámetros Fiscales")
         c1, c2 = st.columns(2)
-        nueva_ut = c1.number_input("Valor Unidad Tributaria (Bs.)", value=conf['ut_valor'], format="%.2f")
-        nuevo_f = c2.number_input("Factor Sustraendo (83.3334)", value=conf['factor_sustraendo'], format="%.4f")
+        nueva_ut = c1.number_input("Valor Unidad Tributaria (Bs.)", value=float(conf.get('ut_valor', 0.0)), format="%.2f")
+        nuevo_f = c2.number_input("Factor Sustraendo (83.3334)", value=float(conf.get('factor_sustraendo', 83.3334)), format="%.4f")
         
-        if st.form_submit_button("✅ Guardar Cambios"):
+        # EL BOTÓN DEBE ESTAR AQUÍ ADENTRO (Indentado con el 'with st.form')
+        submitted = st.form_submit_button("✅ Guardar Configuración")
+        
+        if submitted:
             try:
                 conn = database.conectar()
                 c = conn.cursor()
-                c.execute("""UPDATE configuracion SET nombre_empresa=%s, rif_empresa=%s, 
-                             direccion_empresa=%s, ut_valor=%s, factor_sustraendo=%s WHERE id=1""",
-                          (nombre, rif, dir_f, nueva_ut, nuevo_f))
+                c.execute("""UPDATE configuracion SET 
+                             nombre_empresa=%s, 
+                             rif_empresa=%s, 
+                             direccion_empresa=%s, 
+                             ut_valor=%s, 
+                             factor_sustraendo=%s, 
+                             tipo_contribuyente=%s 
+                             WHERE id=1""",
+                          (nombre, rif, dir_f, nueva_ut, nuevo_f, t_contribuyente))
                 conn.commit()
                 conn.close()
-                st.success("Configuración actualizada. Los cálculos de ISLR ahora usarán estos valores.")
+                st.success("✨ Configuración actualizada exitosamente.")
+                st.rerun()
             except Exception as e:
-                st.error(f"Error al guardar: {e}")
+                st.error(f"❌ Error al guardar: {e}")
 
 def modulo_gestion_usuarios():
     st.title("👥 Gestión de Usuarios")
