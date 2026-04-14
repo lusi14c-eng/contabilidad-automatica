@@ -50,12 +50,11 @@ def inicializar_db():
         conn.commit()
         c.close()
         conn.close()
-        def obtener_datos_empresa():
-    # Puedes cambiar estos datos por los reales de tu empresa
+     def obtener_configuracion_empresa():
     return {
-        "nombre": "ADONAI INDUSTRIAL GROUP, C.A.",
-        "rif": "J-12345678-9",
-        "direccion": "San Diego, Carabobo, Venezuela",
-        "telefono": "0424-4719078/04128805696",
-        "ut": 9.00  # Valor actual de la UT
+        "nombre": "ADONAI GROUP, C.A.",  # <--- Cambia esto por tu nombre real
+        "rif": "J-00000000-0",           # <--- Cambia esto por tu RIF real
+        "direccion": "Valencia, Venezuela",
+        "ut_valor": 9.00,                # <--- Valor de la Unidad Tributaria
+        "factor_sustraendo": 0.25         # <--- Factor de ley (0.25 UT)
     }
