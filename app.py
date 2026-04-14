@@ -2,9 +2,7 @@ import streamlit as st
 import database
 import pandas as pd
 from modulos import entidades, compras
-
 st.set_page_config(page_title="Adonai ERP", layout="wide")
-
 # Inicializar base de datos
 database.inicializar_db()
 
