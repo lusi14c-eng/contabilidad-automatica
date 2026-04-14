@@ -3,45 +3,8 @@ import database
 import pandas as pd
 from modulos import entidades, compras
 
-# 1. Configuración de página
 st.set_page_config(page_title="Adonai ERP", layout="wide")
-
-# 2. Inicializar base de datos
 database.inicializar_db()
-
-# --- 3. FUNCIONES DE GESTIÓN ---
-
-def modulo_perfil():
-    st.title("🔐 Configuración de Perfil")
-    st.info(f"Usuario actual: **{st.session_state['usuario_autenticado']}**")
-    with st.form("cambio_password"):
-        nueva_pass = st.text_input("Nueva Contraseña", type="password")
-        confirmar_pass = st.text_input("Confirme Nueva Contraseña", type="password")
-        if st.form_submit_button("Actualizar mi contraseña"):
-            if nueva_pass == confirmar_pass and nueva_pass != "":
-                conn = database.conectar()
-                c = conn.cursor()
-                c.execute("UPDATE usuarios SET password = %s WHERE username = %s", (nueva_pass, st.session_state['usuario_autenticado']))
-                conn.commit()
-                conn.close()
-                st.success("✅ Contraseña actualizada.")
-            else:
-                st.error("❌ Las contraseñas no coinciden")
-
-def modulo_gestion_usuarios():
-    st.title("👥 Gestión de Usuarios")
-    with st.expander("➕ Crear Nuevo Usuario"):
-        with st.form("nuevo_u"):
-            u = st.text_input("Usuario").lower().strip()
-            p = st.text_input("Clave", type="password")
-            r = st.selectbox("Rol", ["usuario", "admin"])
-            if st.form_submit_button("Guardar"):
-                conn = database.conectar()
-                c = conn.cursor()
-                c.execute("INSERT INTO usuarios (username, password, rol) VALUES (%s, %s, %s)", (u, p, r))
-                conn.commit()
-                conn.close()
-                st.success(f"Usuario {u} creado")
 
 def check_password():
     if "usuario_autenticado" not in st.session_state:
@@ -64,34 +27,14 @@ def check_password():
         return False
     return True
 
-# --- 4. CUERPO PRINCIPAL ---
-
 if check_password():
     st.sidebar.title("🚀 Adonai ERP")
-    st.sidebar.write(f"👤 Usuario: **{st.session_state['usuario_autenticado']}**")
+    opciones = ["Dashboard", "Registrar Entidad", "Registro de Compras"]
+    menu = st.sidebar.selectbox("Módulo:", opciones)
     
-    opciones = ["Dashboard", "Registrar Entidad", "Registro de Compras", "Configuración de Perfil"]
-    if st.session_state.get("rol") == "admin":
-        opciones.append("Gestión de Usuarios")
-    
-    menu = st.sidebar.selectbox("Seleccione Módulo:", opciones)
-    
-    if st.sidebar.button("Cerrar Sesión"):
-        del st.session_state["usuario_autenticado"]
-        st.rerun()
-
     if menu == "Dashboard":
-        st.title("📈 Dashboard")
-        st.write(f"Bienvenido, {st.session_state['usuario_autenticado']}.")
-        
+        st.write("Bienvenido")
     elif menu == "Registrar Entidad":
         entidades.modulo_maestro_entidades()
-
     elif menu == "Registro de Compras":
         compras.modulo_compras()
-
-    elif menu == "Configuración de Perfil":
-        modulo_perfil()
-
-    elif menu == "Gestión de Usuarios":
-        modulo_gestion_usuarios()
