@@ -89,15 +89,34 @@ def modulo_compras():
                             st.error(f"Error al guardar: {e}")
 
     with tab2:
-        st.subheader("📊 Libro de Compras")
+        st.subheader("📊 Libro de Compras Legal (SENIAT)")
         col_m, col_a = st.columns(2)
         mes = col_m.selectbox("Mes", range(1, 13), index=date.today().month-1)
         ano = col_a.number_input("Año", value=date.today().year)
 
-        query_l = """SELECT fecha as "Fecha Doc", rif_proveedor as "RIF", num_factura as "N° Factura", 
-                     subtipo as "Subtipo", base_imponible as "Base", iva_monto as "IVA", 
-                     iva_retenido as "Ret. IVA", total_factura as "Neto" 
-                     FROM compras WHERE EXTRACT(MONTH FROM fecha) = %s AND EXTRACT(YEAR FROM fecha) = %s"""
+        # Query con todas las columnas exigidas por la ley
+        query_l = """
+            SELECT 
+                c.fecha AS "Fecha",
+                e.rif AS "RIF Proveedor",
+                e.nombre AS "Nombre o Razón Social",
+                c.num_factura AS "N° Factura",
+                c.num_control AS "N° Control",
+                '01-Reg' AS "Tipo Transac.", -- 01 Registro, 02 Nota Débito, 03 Nota Crédito
+                '' AS "N° Fact. Afectada", -- Para Notas de Crédito/Débito
+                c.total_factura AS "Total Compras Incl. IVA",
+                c.monto_exento AS "Compras No Sujetas o Exentas",
+                c.base_imponible AS "Base Imponible",
+                '16%' AS "% Alícuota",
+                c.iva_monto AS "Impuesto IVA",
+                c.iva_retenido AS "IVA Retenido",
+                'N/A' AS "N° Comprobante", -- Aquí irá el número cuando generes el PDF
+                EXTRACT(YEAR FROM c.fecha) || LPAD(EXTRACT(MONTH FROM c.fecha)::text, 2, '0') AS "Periodo Fiscal"
+            FROM compras c
+            JOIN entidades e ON c.rif_proveedor = e.rif
+            WHERE EXTRACT(MONTH FROM c.fecha) = %s AND EXTRACT(YEAR FROM c.fecha) = %s
+            ORDER BY c.fecha ASC, c.num_factura ASC
+        """
         
         conn = database.conectar()
         df = pd.read_sql(query_l, conn, params=[int(mes), int(ano)])
@@ -105,9 +124,56 @@ def modulo_compras():
 
         if not df.empty:
             st.dataframe(df, use_container_width=True)
+            
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df.to_excel(writer, index=False, sheet_name='LibroCompras')
-            st.download_button("📥 Descargar Excel", output.getvalue(), f"Libro_{mes}_{ano}.xlsx")
+                # El SENIAT exige que los encabezados empiecen en la fila 5 o 6 después de los datos de la empresa
+                df.to_excel(writer, index=False, sheet_name='LIBRO_DE_COMPRAS', startrow=5)
+                
+                workbook  = writer.book
+                worksheet = writer.sheets['LIBRO_DE_COMPRAS']
+
+                # --- FORMATOS ---
+                fmt_titulo = workbook.add_format({'bold': True, 'font_size': 14})
+                fmt_info = workbook.add_format({'bold': True, 'font_size': 10})
+                fmt_header = workbook.add_format({
+                    'bold': True, 'bg_color': '#EFEFEF', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True
+                })
+                fmt_num = workbook.add_format({'num_format': '#,##0.00', 'border': 1})
+                fmt_txt = workbook.add_format({'border': 1})
+
+                # --- ENCABEZADO FISCAL ---
+                worksheet.write('A1', conf['nombre_empresa'], fmt_titulo)
+                worksheet.write('A2', f"RIF: {conf['rif_empresa']}", fmt_info)
+                worksheet.write('A3', f"DOMICILIO FISCAL: {conf['direccion_empresa']}", fmt_info)
+                worksheet.write('A4', f"LIBRO DE COMPRAS - MES: {mes} AÑO: {ano}", fmt_info)
+
+                # Aplicar formato a encabezados de columna
+                for col_num, value in enumerate(df.columns.values):
+                    worksheet.write(5, col_num, value, fmt_header)
+                
+                # Ajustar columnas y aplicar formato numérico
+                worksheet.set_column('A:A', 12, fmt_txt) # Fecha
+                worksheet.set_column('B:B', 15, fmt_txt) # RIF
+                worksheet.set_column('C:C', 40, fmt_txt) # Nombre
+                worksheet.set_column('D:G', 15, fmt_txt) # Documentos
+                worksheet.set_column('H:M', 18, fmt_num) # Montos
+
+                # --- TOTALES FINALES ---
+                last_row = len(df) + 6
+                worksheet.write(last_row, 6, "TOTALES GENERALES:", fmt_header)
+                
+                # Sumatorias automáticas de las columnas H a M (Totales, Exento, Base, IVA, Retención)
+                columnas_monto = ['H', 'I', 'J', 'L', 'M']
+                for col_let in columnas_monto:
+                    idx = ord(col_let) - 65
+                    worksheet.write_formula(last_row, idx, f"=SUM({col_let}7:{col_let}{last_row})", fmt_num)
+
+            st.download_button(
+                label="📥 Generar Reporte Fiscal Excel",
+                data=output.getvalue(),
+                file_name=f"LIBRO_COMPRAS_{mes}_{ano}_{conf['rif_empresa']}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
-            st.info("No hay registros para este período.")
+            st.info("No existen registros para el período seleccionado.")
