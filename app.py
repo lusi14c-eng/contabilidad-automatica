@@ -14,7 +14,6 @@ database.inicializar_db()
 def modulo_perfil():
     st.title("🔐 Configuración de Perfil")
     st.info(f"Usuario actual: **{st.session_state['usuario_autenticado']}**")
-    
     with st.form("cambio_password"):
         nueva_pass = st.text_input("Nueva Contraseña", type="password")
         confirmar_pass = st.text_input("Confirme Nueva Contraseña", type="password")
