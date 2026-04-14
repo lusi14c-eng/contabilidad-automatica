@@ -8,6 +8,25 @@ database.inicializar_db()
 
 # --- SEGURIDAD (Se mantiene igual) ---
 def check_password():
+    # Dentro del bloque: if check_password():
+
+st.sidebar.title(f"👤 {st.session_state['usuario_autenticado']}")
+
+opciones = ["Dashboard", "Registrar Entidad", "Registro de Compras", "Configuración de Perfil"]
+
+# Si es admin, agregamos el módulo de Gestión de Usuarios
+if st.session_state.get("rol") == "admin":
+    opciones.append("Gestión de Usuarios")
+
+menu = st.sidebar.selectbox("Seleccione Módulo:", opciones)
+
+# ... (Lógica de los otros módulos)
+
+elif menu == "Configuración de Perfil":
+    modulo_perfil() # Función para cambiar clave
+
+elif menu == "Gestión de Usuarios":
+    modulo_gestion_usuarios() # Solo para lgonzalez
     if "usuario_autenticado" not in st.session_state:
         st.title("🔐 Acceso Adonai ERP")
         with st.form("login"):
