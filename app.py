@@ -53,7 +53,7 @@ def check_password():
             user = st.text_input("Usuario")
             pw = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar"):
-                conn = database.connectar() # Asegúrate que en database.py se llame conectar()
+                conn = database.conectar() # Asegúrate que en database.py se llame conectar()
                 c = conn.cursor()
                 c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND password = %s", (user, pw))
                 res = c.fetchone()
