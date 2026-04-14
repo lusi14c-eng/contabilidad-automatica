@@ -40,9 +40,19 @@ def modulo_compras():
                 c1, c2 = st.columns(2)
 
                 with c1:
-                    ap_iva = st.checkbox("¿Retener IVA?")
-                    p_iva = st.selectbox("% IVA", [75, 100], disabled=not ap_iva)
-                    iva_ret = round(iva_f * (p_iva / 100), 2) if ap_iva else 0.0
+                    # LÓGICA AUTOMÁTICA SEGÚN CONFIGURACIÓN DE TU EMPRESA
+                    mi_tipo = conf.get('tipo_contribuyente', 'Ordinario')
+                    es_especial = True if mi_tipo == "Especial" else False
+
+                    # El checkbox se marca solo si eres Especial
+                    aplica_iva = st.checkbox("¿Retener IVA?", value=es_especial)
+                    
+                    # El porcentaje se pone en 75 si eres Especial, sino por defecto en 75 (pero desactivado)
+                    p_iva = st.selectbox("% IVA", [75, 100], index=0, disabled=not aplica_iva)
+                    
+                    iva_ret = round(iva_f * (p_iva / 100), 2) if aplica_iva else 0.0
+                    if aplica_iva:
+                        st.info(f"Monto IVA Retenido: {iva_ret}")
 
                 with c2:
                     ap_islr = st.checkbox("¿Retener ISLR?", value=True)
@@ -52,16 +62,15 @@ def modulo_compras():
 
                     # --- LÓGICA DE SUSTRAENDO ---
                     monto_sustraendo = 0.0
-                    # Solo aplica si es Natural Residente (Regla SENIAT)
                     if ap_islr and p_datos['tipo_persona'] == "Natural Residente":
-                        # Fórmula legal: (83.3334 * UT * tasa) / 100
-                        monto_sustraendo = round((83.3334 * conf['ut_valor'] * tasa) / 100, 2)
+                        # Usa el factor y la UT configurados dinámicamente
+                        monto_sustraendo = round((conf['factor_sustraendo'] * conf['ut_valor'] * tasa) / 100, 2)
                     
                     islr_ret = round((base_i * tasa / 100) - monto_sustraendo, 2)
                     if islr_ret < 0: islr_ret = 0.0
                     
                     if ap_islr:
-                        st.warning(f"Retención: {islr_ret} (Sustraendo: {monto_sustraendo})")
+                        st.warning(f"Retención ISLR: {islr_ret} (Sustraendo: {monto_sustraendo})")
 
                 total = round((m_exento + base_i + iva_f) - iva_ret - islr_ret, 2)
                 st.markdown(f"### Neto a Pagar: **{total}**")
