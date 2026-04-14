@@ -50,7 +50,7 @@ def inicializar_db():
             direccion_empresa TEXT,
             ut_valor DECIMAL,
             factor_sustraendo DECIMAL DEFAULT 83.3334),
-            tipo_contribuyente TEXT DEFAULT 'Ordinario''')
+            tipo_contribuyente TEXT DEFAULT 'Ordinario'''))
 
         # Insertar configuración inicial solo si no existe
         c.execute("SELECT COUNT(*) FROM configuracion")
