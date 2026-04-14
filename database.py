@@ -7,30 +7,30 @@ def inicializar_db():
     conn = conectar()
     c = conn.cursor()
     
-    # 1. Crear tabla si no existe (con estructura base)
+    # Tabla de Entidades
     c.execute('''
         CREATE TABLE IF NOT EXISTS entidades (
             rif TEXT PRIMARY KEY,
             nombre TEXT NOT NULL,
             direccion TEXT,
+            tipo_persona TEXT,
             tipo_contribuyente TEXT,
             categoria TEXT,
-            retencion_islr_pct REAL DEFAULT 0.0
+            retencion_islr_pct REAL DEFAULT 0.0,
+            retencion_iva_pct REAL DEFAULT 0.0
         )
     ''')
     
-    # 2. TRUCO MÁGICO: Intentar agregar la columna de IVA por si no existe
-    try:
-        c.execute('ALTER TABLE entidades ADD COLUMN retencion_iva_pct REAL DEFAULT 0.0')
-        c.execute('ALTER TABLE entidades ADD COLUMN tipo_persona TEXT DEFAULT "Jurídica Domiciliada"')
-        c.execute('ALTER TABLE entidades ADD COLUMN retencion_iva_pct REAL DEFAULT 0.0')
-        c.execute('ALTER TABLE compras ADD COLUMN aplica_ret_islr INTEGER DEFAULT 1')
-        c.execute('ALTER TABLE compras ADD COLUMN aplica_ret_iva INTEGER DEFAULT 1')
-    except sqlite3.OperationalError:
-        # Si da error es porque la columna ya existe, así que no hacemos nada
-        pass
-
-    # 3. Tabla de Compras
+    # TABLA DE SUBTIPOS (La que te falta)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS subtipos_gasto (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT UNIQUE,
+            cuenta_contable TEXT
+        )
+    ''')
+    
+    # Tabla de Compras
     c.execute('''
         CREATE TABLE IF NOT EXISTS compras (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +44,9 @@ def inicializar_db():
             islr_retenido REAL DEFAULT 0.0,
             iva_retenido REAL DEFAULT 0.0,
             total_factura REAL,
+            subtipo TEXT,
+            aplica_ret_islr INTEGER DEFAULT 1,
+            aplica_ret_iva INTEGER DEFAULT 1,
             FOREIGN KEY (rif_proveedor) REFERENCES entidades (rif)
         )
     ''')
