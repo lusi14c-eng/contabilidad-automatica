@@ -50,3 +50,12 @@ def inicializar_db():
         conn.commit()
         c.close()
         conn.close()
+        def obtener_datos_empresa():
+    # Puedes cambiar estos datos por los reales de tu empresa
+    return {
+        "nombre": "ADONAI INDUSTRIAL GROUP, C.A.",
+        "rif": "J-12345678-9",
+        "direccion": "San Diego, Carabobo, Venezuela",
+        "telefono": "0424-4719078/04128805696",
+        "ut": 9.00  # Valor actual de la UT
+    }
