@@ -13,83 +13,63 @@ database.inicializar_db()
 
 def modulo_contabilidad_general():
     st.title("🏛️ Gestión Contable Profesional")
-    t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Control de Períodos"])
+    # Añadimos las pestañas que faltaban
+    t1, t2, t3, t4, t5 = st.tabs([
+        "📖 Diario General", 
+        "📑 Plan de Cuentas", 
+        "🏷️ Subtipos de Gasto", 
+        "🏢 Centros de Costo", 
+        "🔒 Períodos Fiscales"
+    ])
 
-    # --- PESTAÑA 1: DIARIO (CON EDICIÓN) ---
-    with t1:
-        col_btn1, col_btn2 = st.columns([1, 4])
-        if col_btn1.button("➕ Nuevo Asiento"):
-            st.session_state["editando_id"] = None
-            st.session_state["nuevo_asiento"] = True
-
-        # LÓGICA DE VISUALIZACIÓN Y ACCIONES
-        df_diario = pd.read_sql("SELECT id, num_asiento, fecha, concepto, origen FROM asientos_cabecera ORDER BY id DESC", database.conectar())
-        
-        for _, row in df_diario.iterrows():
-            with st.expander(f"📑 {row['num_asiento']} | {row['fecha']} | {row['concepto']}"):
-                c_edit, c_del, c_view = st.columns(3)
-                
-                if c_edit.button("📝 Editar Asiento", key=f"ed_{row['id']}"):
-                    st.session_state["editando_id"] = row['id']
-                    st.session_state["nuevo_asiento"] = True
+    # --- PESTAÑA 2: PLAN DE CUENTAS ---
+    with t4:
+        st.subheader("Catálogo de Cuentas Contables")
+        with st.expander("➕ Añadir Nueva Cuenta"):
+            with st.form("form_plan"):
+                c1, c2, c3 = st.columns([1, 2, 1])
+                cod = c1.text_input("Código (Ej: 1.1.01.001)")
+                nom = c2.text_input("Nombre de la Cuenta")
+                tipo = c3.selectbox("Categoría", ["Activo", "Pasivo", "Patrimonio", "Ingreso", "Egreso", "Costo"])
+                if st.form_submit_button("Guardar Cuenta"):
+                    database.ejecutar_transaccion(
+                        "INSERT INTO plan_cuentas (codigo, nombre, tipo) VALUES (%s, %s, %s) ON CONFLICT (codigo) DO NOTHING",
+                        (cod, nom, tipo)
+                    )
+                    st.success("Cuenta añadida.")
                     st.rerun()
+        
+        df_cuentas = pd.read_sql("SELECT codigo as \"Código\", nombre as \"Cuenta\", tipo as \"Tipo\" FROM plan_cuentas ORDER BY codigo ASC", database.conectar())
+        st.dataframe(df_cuentas, use_container_width=True)
 
-                if c_del.button("🗑️ Eliminar/Anular", key=f"del_{row['id']}"):
-                    # Validar periodo antes de borrar
-                    p_check = f"{row['fecha'].year}-{str(row['fecha'].month).zfill(2)}"
-                    res_p = database.ejecutar_query("SELECT modulo_cg FROM periodos_fiscales WHERE periodo = %s", (p_check,), fetch=True)
-                    if res_p and res_p[0] == "Abierto":
-                        database.ejecutar_transaccion("DELETE FROM asientos_cabecera WHERE id = %s", (int(row['id']),))
-                        st.warning("Asiento eliminado.")
-                        st.rerun()
-                    else:
-                        st.error("No se puede eliminar: El período está CERRADO.")
-
-        # FORMULARIO DE CREACIÓN / EDICIÓN (MODO ODOO)
-        if st.session_state.get("nuevo_asiento"):
-            id_a = st.session_state.get("editando_id")
-            titulo = "Editando Asiento" if id_a else "Nuevo Asiento"
+    # --- PESTAÑA 3: SUBTIPOS DE GASTO (Configuración para Compras) ---
+    with t5:
+        st.subheader("Configuración de Subtipos de Gasto")
+        st.info("Aquí defines conceptos como 'Alquiler' o 'Papelería' y los enlazas a una cuenta contable.")
+        
+        with st.form("form_subtipos"):
+            c1, c2 = st.columns(2)
+            nom_sub = c1.text_input("Nombre del Subtipo (Ej: Honorarios Profesionales)")
             
-            with st.form("form_asiento_erp"):
-                st.subheader(titulo)
-                # Si estamos editando, cargar valores previos (Simulado por ahora)
-                col_h1, col_h2 = st.columns(2)
-                f_as = col_h1.date_input("Fecha Contable")
-                desc_as = col_h2.text_input("Concepto")
-                
-                df_init = pd.DataFrame([{"Cuenta": "", "CC": "", "Debe": 0.0, "Haber": 0.0} for _ in range(5)])
-                asiento_data = st.data_editor(df_init, num_rows="dynamic", use_container_width=True)
-
-                if st.form_submit_button("✅ Guardar Cambios"):
-                    # Aquí la lógica de UPDATE si id_a existe, o INSERT si es None
-                    st.success("Operación exitosa.")
-                    st.session_state["nuevo_asiento"] = False
-                    st.rerun()
-
-    # --- PESTAÑA 3: CIERRE DEL EJERCICIO (NUEVO) ---
-    with t3:
-        st.divider()
-        st.subheader("🏁 Cierre del Ejercicio Fiscal")
-        st.warning("El cierre anual llevará a cero las cuentas nominales y bloqueará todo el año seleccionado.")
-        
-        c_an1, c_an2 = st.columns([2, 1])
-        anio_cierre = c_an1.number_input("Año a Cerrar", value=2026, key="anio_cierre")
-        
-        if c_an2.button("🚀 Ejecutar Cierre Anual"):
-            # 1. Validar que todos los meses del año estén "Cerrados"
+            # Buscador de cuentas para el enlace
             conn = database.conectar()
-            df_check = pd.read_sql(f"SELECT estatus FROM periodos_fiscales WHERE periodo LIKE '{anio_cierre}-%%' AND modulo_cg = 'Abierto'", conn)
+            lista_cuentas = pd.read_sql("SELECT codigo, nombre FROM plan_cuentas WHERE tipo IN ('Egreso', 'Costo', 'Activo')", conn)
+            conn.close()
             
-            if not df_check.empty:
-                st.error(f"No se puede cerrar el año. Hay {len(df_check)} meses todavía abiertos en Contabilidad.")
-            else:
-                # 2. Lógica Contable de Cierre (Simulada: se crearía un asiento de tipo 'CIE')
-                num_cie = database.obtener_ultimo_correlativo("CIE")
+            opciones_cta = {f"{r['codigo']} - {r['nombre']}": r['codigo'] for _, r in lista_cuentas.iterrows()}
+            cta_sel = c2.selectbox("Cuenta Contable Asociada", options=list(opciones_cta.keys()))
+            
+            if st.form_submit_button("Vincular Subtipo"):
                 database.ejecutar_transaccion(
-                    "INSERT INTO asientos_cabecera (num_asiento, fecha, concepto, origen, creado_por) VALUES (%s,%s,%s,%s,%s)",
-                    (num_cie, f"{anio_cierre}-12-31", f"CIERRE DEL EJERCICIO {anio_cierre}", "CIE", st.session_state['usuario_autenticado'])
+                    "INSERT INTO compra_subtipos (nombre, cuenta_codigo) VALUES (%s, %s) ON CONFLICT (nombre) DO NOTHING",
+                    (nom_sub, opciones_cta[cta_sel])
                 )
-                st.success(f"¡Ejercicio {anio_cierre} cerrado con éxito! Se generó el comprobante {num_cie}.")
+                st.success(f"Subtipo '{nom_sub}' configurado.")
+                st.rerun()
+
+        st.divider()
+        df_sub = pd.read_sql("SELECT nombre as \"Subtipo\", cuenta_codigo as \"Cuenta Asociada\" FROM compra_subtipos", database.conectar())
+        st.table(df_sub)
 
 def modulo_auditoria():
     st.title("🕵️ Historial de Actividad (Auditoría)")
