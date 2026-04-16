@@ -57,6 +57,11 @@ def inicializar_db():
         monto_exento DECIMAL DEFAULT 0, base_imponible DECIMAL DEFAULT 0, iva_monto DECIMAL DEFAULT 0, 
         iva_retenido DECIMAL DEFAULT 0, islr_retenido DECIMAL DEFAULT 0, total_factura DECIMAL DEFAULT 0,
         saldo_pendiente DECIMAL DEFAULT 0, subtipo TEXT, asiento_id INTEGER, creado_por TEXT)''')
+    # Asegurar tabla de periodos
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (
+        id SERIAL PRIMARY KEY,
+        periodo TEXT UNIQUE, -- Formato '2026-04'
+        estatus TEXT DEFAULT 'Abierto')''')
 
     # Forzar columnas en compras
     for col in [("tipo_documento", "TEXT DEFAULT 'FAC'"), ("saldo_pendiente", "DECIMAL DEFAULT 0"), ("asiento_id", "INTEGER"), ("creado_por", "TEXT")]:
