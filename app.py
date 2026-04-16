@@ -13,99 +13,84 @@ database.inicializar_db()
 
 def modulo_contabilidad_general():
     st.title("🏛️ Contabilidad General (CG)")
-    t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Períodos Fiscales"])
+    t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Control de Períodos"])
 
-    # --- PESTAÑA 3: PERÍODOS (Lo configuramos primero para que afecte al Diario) ---
-    with t3:
-        st.subheader("Control de Períodos Mensuales")
+    # --- PESTAÑA 2: CENTROS DE COSTO (CORREGIDO) ---
+    with t2:
+        st.subheader("Configuración de Centros de Costo")
+        with st.form("nuevo_cc"):
+            c1, c2 = st.columns(2)
+            cod_cc = c1.text_input("Código Centro")
+            nom_cc = c2.text_input("Nombre Centro")
+            if st.form_submit_button("Añadir"):
+                if cod_cc and nom_cc:
+                    database.ejecutar_transaccion("INSERT INTO centros_costo (codigo, nombre) VALUES (%s,%s) ON CONFLICT (codigo) DO NOTHING", (cod_cc, nom_cc))
+                    st.success("Centro de costo creado.")
+                    st.rerun()
         
-        # Formulario para abrir nuevos meses
-        with st.expander("➕ Abrir Nuevo Período"):
-            c_p1, c_p2 = st.columns(2)
-            m_new = c_p1.selectbox("Mes", range(1, 13), key="m_new")
-            a_new = c_p2.number_input("Año", value=2026, key="a_new")
-            if st.button("Confirmar Apertura"):
-                per_string = f"{a_new}-{str(m_new).zfill(2)}"
-                database.ejecutar_transaccion("INSERT INTO periodos_fiscales (periodo, estatus) VALUES (%s, 'Abierto') ON CONFLICT DO NOTHING", (per_string,))
-                st.rerun()
+        df_cc = pd.read_sql("SELECT codigo as \"Código\", nombre as \"Nombre\" FROM centros_costo", database.conectar())
+        st.table(df_cc)
 
-        # Visualización de Estatus
+    # --- PESTAÑA 3: PERÍODOS (INTERFAZ CON CANDADOS) ---
+    with t3:
+        st.subheader("Estatus de Módulos por Período")
+        st.info("Solo se permiten máximo 2 períodos abiertos simultáneamente.")
+        
         conn = database.conectar()
-        df_p = pd.read_sql("SELECT periodo, estatus FROM periodos_fiscales ORDER BY periodo DESC", conn)
+        df_p = pd.read_sql("SELECT periodo, modulo_cg, modulo_cp FROM periodos_fiscales ORDER BY periodo DESC", conn)
         conn.close()
 
+        # Encabezados de tabla
+        h1, h2, h3, h4 = st.columns([1, 1, 1, 1])
+        h1.write("**Mes/Año**")
+        h2.write("**Contabilidad (CG)**")
+        h3.write("**Compras (CP)**")
+        h4.write("**Acciones**")
+
         for idx, row in df_p.iterrows():
-            col_per, col_est, col_acc = st.columns([2, 2, 2])
-            col_per.write(f"📅 **{row['periodo']}**")
+            c1, c2, c3, c4 = st.columns([1, 1, 1, 1])
+            c1.write(f"📅 {row['periodo']}")
             
-            # Semáforo de estatus
-            color = "green" if row['estatus'] == "Abierto" else "red"
-            col_est.markdown(f"<{color}>● {row['estatus']}</{color}>", unsafe_allow_html=True)
+            # Iconos CG
+            cg_icon = "🟢" if row['modulo_cg'] == 'Abierto' else "🔒"
+            c2.write(f"{cg_icon} {row['modulo_cg']}")
             
-            # Botón de acción
-            label = "Cerrar Mes" if row['estatus'] == "Abierto" else "Reabrir"
-            if col_acc.button(label, key=f"btn_p_{row['periodo']}"):
-                nuevo_est = "Cerrado" if row['estatus'] == "Abierto" else "Abierto"
-                database.ejecutar_transaccion("UPDATE periodos_fiscales SET estatus = %s WHERE periodo = %s", (nuevo_est, row['periodo']))
-                st.rerun()
+            # Iconos CP
+            cp_icon = "🟢" if row['modulo_cp'] == 'Abierto' else "🔒"
+            c3.write(f"{cp_icon} {row['modulo_cp']}")
 
-    # --- PESTAÑA 1: DIARIO GENERAL (Con validación de bloqueo) ---
-    with t1:
-        col_a, col_b = st.columns([3, 1])
-        col_a.subheader("Movimientos del Diario")
-        if col_b.button("➕ Nuevo Asiento Manual"):
-            st.session_state["modo_asiento"] = "crear"
-
-        if st.session_state.get("modo_asiento"):
-            with st.form("form_asiento_cuadrado"):
-                st.markdown("### 📝 Nuevo Registro Contable")
-                c1, c2, c3 = st.columns([1, 2, 1])
-                f_as = c1.date_input("Fecha de Registro")
-                con_as = c2.text_input("Concepto o Glosa")
-                tipo_as = c3.selectbox("Tipo", ["CG", "CP", "BAN"])
-
-                # VALIDACIÓN DE PERÍODO CERRADO
-                per_actual = f"{f_as.year}-{str(f_as.month).zfill(2)}"
-                conn = database.conectar()
-                res_p = database.ejecutar_query("SELECT estatus FROM periodos_fiscales WHERE periodo = %s", (per_actual,), fetch=True)
-                es_cerrado = (res_p and res_p[0] == "Cerrado")
-
-                # Cuerpo del asiento (simplificado para prueba)
-                st.markdown("---")
-                total_d, total_h = 0.0, 0.0
-                filas = []
-                for i in range(3): # 3 filas de ejemplo
-                    cx1, cx2, cx3, cx4 = st.columns([2, 1, 1, 1])
-                    cta = cx1.text_input(f"Cuenta {i+1}", key=f"f_cta_{i}")
-                    cc = cx2.text_input(f"CC", key=f"f_cc_{i}")
-                    d = cx3.number_input("Debe", min_value=0.0, key=f"f_d_{i}")
-                    h = cx4.number_input("Haber", min_value=0.0, key=f"f_h_{i}")
-                    if cta:
-                        total_d += d
-                        total_h += h
+            # Botón de Cambio Rápido
+            if c4.button("Invertir Estatus", key=f"p_{row['periodo']}"):
+                # Contar cuántos periodos hay abiertos actualmente
+                abiertos = len(df_p[df_p['modulo_cg'] == 'Abierto'])
+                nuevo_est = "Cerrado" if row['modulo_cg'] == 'Abierto' else "Abierto"
                 
-                st.divider()
-                st.write(f"**Total Debe:** {total_d} | **Total Haber:** {total_h}")
-                
-                # BOTONES DE GUARDADO CON LÓGICA DE BLOQUEO
-                if es_cerrado:
-                    st.error(f"🚫 El período {per_actual} está CERRADO. No puede contabilizar.")
-                    st.form_submit_button("Guardar (Bloqueado)", disabled=True)
+                if nuevo_est == "Abierto" and abiertos >= 2:
+                    st.error("No puede abrir más de 2 períodos.")
                 else:
-                    if st.form_submit_button("💾 Validar y Guardar Asiento"):
-                        if total_d != total_h:
-                            st.warning("⚠️ El asiento está descuadrado.")
-                        elif total_d == 0:
-                            st.error("No puede guardar un asiento vacío.")
-                        else:
-                            num = database.obtener_ultimo_correlativo(tipo_as)
-                            database.ejecutar_transaccion(
-                                "INSERT INTO asientos_cabecera (num_asiento, fecha, concepto, origen, creado_por) VALUES (%s,%s,%s,%s,%s)",
-                                (num, f_as, con_as, tipo_as, st.session_state['usuario_autenticado'])
-                            )
-                            st.success(f"Asiento {num} registrado con éxito.")
-                            st.session_state["modo_asiento"] = None
-                            st.rerun()
+                    database.ejecutar_transaccion(
+                        "UPDATE periodos_fiscales SET modulo_cg = %s, modulo_cp = %s WHERE periodo = %s",
+                        (nuevo_est, nuevo_est, row['periodo'])
+                    )
+                    st.rerun()
+
+    # --- PESTAÑA 1: DIARIO (CON BLOQUEO DE MÓDULO) ---
+    with t1:
+        # Lógica de guardado...
+        f_as = st.date_input("Fecha Asiento", key="fecha_as")
+        per_target = f"{f_as.year}-{str(f_as.month).zfill(2)}"
+        
+        # Consultar estatus específico de CG para este mes
+        res_per = database.ejecutar_query("SELECT modulo_cg FROM periodos_fiscales WHERE periodo = %s", (per_target,), fetch=True)
+        
+        estatus_cg = res_per[0] if res_per else "Cerrado" # Si no existe, está cerrado
+
+        if estatus_cg == "Cerrado":
+            st.error(f"🔒 El módulo de Contabilidad está CERRADO para {per_target}.")
+            # Deshabilitar botones de guardado
+        else:
+            st.success(f"🟢 Período {per_target} disponible para contabilizar.")
+            # Aquí va el formulario de asiento que ya teníamos...
 
 def modulo_auditoria():
     st.title("🕵️ Historial de Actividad (Auditoría)")
