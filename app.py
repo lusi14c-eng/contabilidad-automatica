@@ -13,22 +13,18 @@ database.inicializar_db()
 
 def modulo_contabilidad_general():
     st.title("🏛️ Contabilidad General (CG)")
-    t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Períodos Fiscales"])
+    t1, t2 = st.tabs(["📖 Diario General", "🏢 Centros de Costo"])
 
     with t1:
-        st.subheader("Asientos Contables")
-        # Aquí luego programaremos la creación de asientos manuales CGXXXXXXXX
-        st.info("Consulte aquí todos los asientos generados por CP y CG.")
+        st.subheader("Asientos Contables Registrados")
         conn = database.conectar()
-        query = """
-            SELECT a.num_asiento, a.fecha, a.concepto, a.origen, a.creado_por,
-                   SUM(d.debe) as total_debe
-            FROM asientos_cabecera a
-            LEFT JOIN asientos_detalle d ON a.id = d.asiento_id
-            GROUP BY a.id ORDER BY a.fecha DESC
-        """
-        df_asientos = pd.read_sql(query, conn)
-        st.dataframe(df_asientos, use_container_width=True)
+        # Consulta simplificada para evitar UndefinedColumn si la migración falló
+        query = "SELECT num_asiento, fecha, concepto, origen, creado_por FROM asientos_cabecera ORDER BY id DESC"
+        try:
+            df_asientos = pd.read_sql(query, conn)
+            st.dataframe(df_asientos, use_container_width=True)
+        except Exception as e:
+            st.error(f"Error al cargar asientos: {e}. Verifique la estructura de la base de datos.")
         conn.close()
 
     with t2:
