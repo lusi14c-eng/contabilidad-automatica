@@ -53,19 +53,11 @@ def inicializar_db():
 
     ejecutar_transaccion("CREATE TABLE IF NOT EXISTS centros_costo (id SERIAL PRIMARY KEY, codigo TEXT UNIQUE, nombre TEXT)")
 
-    # 2. TABLA DE PERÍODOS (CON COLUMNAS DE MÓDULO)
+    # 2. TABLA DE PERÍODOS
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (
-        id SERIAL PRIMARY KEY,
-        periodo TEXT UNIQUE,
-        estatus TEXT DEFAULT 'Abierto')''')
+        id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
 
-    # MIGRACIÓN: Añadir columnas para bloqueo individual de módulos
-    columnas_periodos = [
-        ("modulo_cg", "TEXT DEFAULT 'Abierto'"),
-        ("modulo_cp", "TEXT DEFAULT 'Abierto'"),
-        ("modulo_cb", "TEXT DEFAULT 'Abierto'")
-    ]
-    for col, tipo in columnas_periodos:
+    for col, tipo in [("modulo_cg", "TEXT DEFAULT 'Abierto'"), ("modulo_cp", "TEXT DEFAULT 'Abierto'"), ("modulo_cb", "TEXT DEFAULT 'Abierto'")]:
         ejecutar_transaccion(f"ALTER TABLE periodos_fiscales ADD COLUMN IF NOT EXISTS {col} {tipo}")
 
     # 3. ENTIDADES Y COMPRAS
@@ -78,7 +70,7 @@ def inicializar_db():
         num_factura TEXT, num_control TEXT, tipo_documento TEXT DEFAULT 'FAC',
         monto_exento DECIMAL DEFAULT 0, base_imponible DECIMAL DEFAULT 0, iva_monto DECIMAL DEFAULT 0, 
         iva_retenido DECIMAL DEFAULT 0, islr_retenido DECIMAL DEFAULT 0, total_factura DECIMAL DEFAULT 0,
-        saldo_pendiente DECIMAL DEFAULT 0, subtipo TEXT, asiento_id INTEGER, creado_por TEXT)''")
+        saldo_pendiente DECIMAL DEFAULT 0, subtipo TEXT, asiento_id INTEGER, creado_por TEXT)''')
 
     for col, tipo in [("tipo_documento", "TEXT DEFAULT 'FAC'"), ("saldo_pendiente", "DECIMAL DEFAULT 0"), ("asiento_id", "INTEGER")]:
         ejecutar_transaccion(f"ALTER TABLE compras ADD COLUMN IF NOT EXISTS {col} {tipo}")
