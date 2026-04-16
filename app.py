@@ -99,21 +99,36 @@ def modulo_gestion_usuarios():
     # ... tabla de usuarios (se mantiene igual) ...
 
 def modulo_configuracion_sistema():
-    st.title("⚙️ Configuración")
+    st.title("⚙️ Configuración del Sistema")
     conf = database.obtener_configuracion_empresa()
-    with st.form("f_conf"):
+    
+    with st.form("form_config"):
+        st.subheader("Datos de la Empresa")
         col1, col2 = st.columns(2)
-        n = col1.text_input("Razón Social", value=conf['nombre_empresa'])
-        r = col1.text_input("RIF", value=conf['rif_empresa'])
-        t = col1.selectbox("Contribuyente", ["Especial", "Ordinario", "Formal"], index=["Especial", "Ordinario", "Formal"].index(conf['tipo_contribuyente']))
-        ut = col2.number_input("UT", value=conf['ut_valor'])
-        if st.form_submit_button("Guardar"):
+        with col1:
+            nombre = st.text_input("Razón Social", value=conf['nombre_empresa'])
+            rif = st.text_input("RIF Empresa", value=conf['rif_empresa'])
+            t_contrib = st.selectbox("Tipo de Contribuyente", ["Especial", "Ordinario", "Formal"], 
+                                    index=["Especial", "Ordinario", "Formal"].index(conf['tipo_contribuyente']))
+        with col2:
+            dir_f = st.text_area("Dirección Fiscal", value=conf['direccion_empresa'])
+        
+        st.divider()
+        st.subheader("Parámetros Fiscales")
+        c1, c2 = st.columns(2)
+        nueva_ut = c1.number_input("Valor Unidad Tributaria (Bs.)", value=conf['ut_valor'], format="%.2f")
+        nuevo_f = c2.number_input("Factor Sustraendo", value=conf['factor_sustraendo'], format="%.4f")
+        
+        if st.form_submit_button("✅ Guardar Cambios"):
             conn = database.conectar()
             c = conn.cursor()
-            c.execute("UPDATE configuracion SET nombre_empresa=%s, rif_empresa=%s, ut_valor=%s, tipo_contribuyente=%s WHERE id=1", (n, r, ut, t))
+            c.execute("""UPDATE configuracion SET nombre_empresa=%s, rif_empresa=%s, direccion_empresa=%s, 
+                         ut_valor=%s, factor_sustraendo=%s, tipo_contribuyente=%s WHERE id=1""",
+                      (nombre, rif, dir_f, nueva_ut, nuevo_f, t_contrib))
             conn.commit()
-            database.registrar_log(st.session_state['usuario_autenticado'], "EDITAR", "configuracion", "Actualizó datos de la empresa")
+            database.registrar_log(st.session_state['usuario_autenticado'], "UPDATE", "configuracion", "Cambió parámetros del sistema")
             conn.close()
+            st.success("Configuración actualizada.")
             st.rerun()
 
 # --- CONTROL DE ACCESO ---
