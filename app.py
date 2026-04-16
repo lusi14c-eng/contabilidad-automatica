@@ -13,21 +13,22 @@ database.inicializar_db()
 
 def modulo_contabilidad_general():
     st.title("🏛️ Contabilidad General (CG)")
-    # AÑADIMOS t3 AQUÍ PARA QUE NO DE NAMEERROR
+    # Definimos exactamente 3 pestañas
     t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Períodos"])
 
     with t1:
-        st.subheader("Asientos Contables Registrados")
+        st.subheader("Asientos Contables")
         conn = database.conectar()
-        # Usamos try para capturar si la columna aún no se crea
-        try:
-            query = "SELECT num_asiento, fecha, concepto, origen, creado_por FROM asientos_cabecera ORDER BY id DESC"
-            df_asientos = pd.read_sql(query, conn)
-            st.dataframe(df_asientos, use_container_width=True)
-        except Exception as e:
-            st.warning("Estructura de asientos en proceso de actualización. Intente recargar la página.")
-        finally:
-            conn.close()
+        if conn:
+            try:
+                # Consulta con los nombres de columna que forzamos arriba
+                df = pd.read_sql("SELECT num_asiento, fecha, concepto, origen, creado_por FROM asientos_cabecera ORDER BY id DESC", conn)
+                st.dataframe(df, use_container_width=True)
+            except:
+                st.info("No hay asientos registrados aún.")
+            finally:
+                conn.close()
+    # ... resto del código con with t2 y with t3 ...
 
     with t2:
         st.subheader("Centros de Costo")
