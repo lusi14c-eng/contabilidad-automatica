@@ -59,6 +59,19 @@ def inicializar_db():
 
     for col, tipo in [("modulo_cg", "TEXT DEFAULT 'Abierto'"), ("modulo_cp", "TEXT DEFAULT 'Abierto'"), ("modulo_cb", "TEXT DEFAULT 'Abierto'")]:
         ejecutar_transaccion(f"ALTER TABLE periodos_fiscales ADD COLUMN IF NOT EXISTS {col} {tipo}")
+        # Tabla de Plan de Cuentas (Jerárquico)
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS plan_cuentas (
+        codigo TEXT PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        tipo TEXT, -- Activo, Pasivo, Patrimonio, Ingreso, Egreso
+        nivel INTEGER,
+        padre_codigo TEXT)''')
+
+    # Tabla de Subtipos de Compra (Enlazada al Plan de Cuentas)
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS compra_subtipos (
+        id SERIAL PRIMARY KEY,
+        nombre TEXT UNIQUE NOT NULL,
+        cuenta_codigo TEXT REFERENCES plan_cuentas(codigo))''')
 
     # 3. ENTIDADES Y COMPRAS
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS entidades (
