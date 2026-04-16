@@ -1,101 +1,105 @@
-import streamlit as st
-import database
-import hashlib
-import pandas as pd
-from datetime import datetime
+def modulo_contabilidad_general():
+    st.title("🏛️ Gestión Contable Empresarial")
+    t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Control de Períodos"])
 
-database.inicializar_db()
+    # --- PESTAÑA 3: CONTROL DE PERÍODOS (MODO ERP) ---
+    with t3:
+        st.subheader("Estatus de Módulos por Período")
+        col_gen1, col_gen2 = st.columns([2, 1])
+        anio_op = col_gen1.number_input("Año Fiscal a Gestionar", value=2026)
+        if col_gen2.button("Generar Ejercicio Fiscal"):
+            for m in range(1, 13):
+                p_str = f"{anio_op}-{str(m).zfill(2)}"
+                database.ejecutar_transaccion(
+                    "INSERT INTO periodos_fiscales (periodo, modulo_cg, modulo_cp) VALUES (%s, 'Cerrado', 'Cerrado') ON CONFLICT DO NOTHING", (p_str,)
+                )
+            st.success(f"Ejercicio {anio_op} generado.")
 
-# --- GESTIÓN DE SESIÓN ---
-if 'autenticado' not in st.session_state:
-    st.session_state['autenticado'] = False
+        # Tabla de control
+        conn = database.conectar()
+        df_p = pd.read_sql(f"SELECT periodo, modulo_cg, modulo_cp FROM periodos_fiscales WHERE periodo LIKE '{anio_op}-%%' ORDER BY periodo ASC", conn)
+        conn.close()
 
-def login():
-    st.title("🔒 Acceso ERP Adonai")
-    with st.form("login_form"):
-        user = st.text_input("Usuario")
-        pw = st.text_input("Contraseña", type="password")
-        if st.form_submit_button("Entrar"):
-            h = hashlib.sha256(pw.encode()).hexdigest()
-            conn = database.conectar()
-            with conn.cursor() as c:
-                c.execute("SELECT usuario, rol, nombre FROM usuarios WHERE usuario=%s AND clave=%s", (user, h))
-                res = c.fetchone()
-            if res:
-                st.session_state['autenticado'] = True
-                st.session_state['usuario'] = res[0]
-                st.session_state['rol'] = res[1]
-                st.rerun()
-            else:
-                st.error("Usuario o clave incorrectos")
+        if not df_p.empty:
+            st.markdown("---")
+            for _, row in df_p.iterrows():
+                c1, c2, c3, c4, c5 = st.columns([1, 1.2, 1.2, 1, 1])
+                c1.write(f"📅 **{row['periodo']}**")
+                
+                # Estado CG
+                cg_icon = "🟢" if row['modulo_cg'] == 'Abierto' else "🔒"
+                c2.write(f"{cg_icon} CG: {row['modulo_cg']}")
+                if c4.button("Alt. CG", key=f"cg_{row['periodo']}"):
+                    n_st = "Cerrado" if row['modulo_cg'] == 'Abierto' else "Abierto"
+                    database.ejecutar_transaccion("UPDATE periodos_fiscales SET modulo_cg = %s WHERE periodo = %s", (n_st, row['periodo']))
+                    st.rerun()
 
-if not st.session_state['autenticado']:
-    login()
-    st.stop()
+                # Estado CP
+                cp_icon = "🟢" if row['modulo_cp'] == 'Abierto' else "🔒"
+                c3.write(f"{cp_icon} CP: {row['modulo_cp']}")
+                if c5.button("Alt. CP", key=f"cp_{row['periodo']}"):
+                    n_st = "Cerrado" if row['modulo_cp'] == 'Abierto' else "Abierto"
+                    database.ejecutar_transaccion("UPDATE periodos_fiscales SET modulo_cp = %s WHERE periodo = %s", (n_st, row['periodo']))
+                    st.rerun()
 
-# --- MENÚ PRINCIPAL ---
-st.sidebar.title(f"👤 {st.session_state['usuario']}")
-st.sidebar.write(f"Rol: {st.session_state['rol']}")
-
-opcion = st.sidebar.selectbox("Módulo", ["🏠 Inicio", "🛍️ Compras", "🏛️ Contabilidad", "⚙️ Configuración"])
-
-if st.sidebar.button("Cerrar Sesión"):
-    st.session_state['autenticado'] = False
-    st.rerun()
-
-# --- MÓDULO COMPRAS ---
-if opcion == "🛍️ Compras":
-    st.header("Registro de Facturas de Compra")
-    with st.form("form_compra"):
-        c1, c2 = st.columns(2)
-        fecha = c1.date_input("Fecha")
-        rif = c2.text_input("RIF Proveedor")
-        n_factura = c1.text_input("N° Factura")
-        monto = c2.number_input("Monto Base", min_value=0.0)
-        
-        if st.form_submit_button("Guardar Factura"):
-            database.ejecutar_transaccion(
-                "INSERT INTO compras (fecha, rif_proveedor, num_factura, base_imponible, creado_por) VALUES (%s,%s,%s,%s,%s)",
-                (fecha, rif, n_factura, monto, st.session_state['usuario'])
-            )
-            st.success("Factura registrada con éxito")
-
-# --- MÓDULO CONFIGURACIÓN (Usuarios y Empresa) ---
-elif opcion == "⚙️ Configuración":
-    st.header("Configuración del Sistema")
-    t1, t2 = st.tabs(["👥 Usuarios", "🏢 Datos de Empresa"])
-    
+    # --- PESTAÑA 1: DIARIO GENERAL (MODO ODOO) ---
     with t1:
-        if st.session_state['rol'] == "Administrador":
-            st.subheader("Crear Usuario")
-            with st.form("new_user"):
-                u = st.text_input("Nuevo Usuario")
-                p = st.text_input("Contraseña", type="password")
-                r = st.selectbox("Rol", ["Administrador", "Contador", "Analista"])
-                if st.form_submit_button("Crear"):
-                    h = hashlib.sha256(p.encode()).hexdigest()
-                    database.ejecutar_transaccion("INSERT INTO usuarios (usuario, clave, rol) VALUES (%s,%s,%s)", (u, h, r))
-                    st.success("Usuario creado")
-        
-        st.subheader("Cambiar Mi Contraseña")
-        with st.form("change_pw"):
-            nueva_p = st.text_input("Nueva Contraseña", type="password")
-            if st.form_submit_button("Actualizar Clave"):
-                h = hashlib.sha256(nueva_p.encode()).hexdigest()
-                database.ejecutar_transaccion("UPDATE usuarios SET clave=%s WHERE usuario=%s", (h, st.session_state['usuario']))
-                st.success("Contraseña actualizada")
+        if st.button("➕ Crear Comprobante Contable"):
+            st.session_state["nuevo_asiento"] = True
 
-    with t2:
-        st.subheader("Datos Fiscales")
-        # Aquí cargarías y guardarías en la tabla configuracion...
-        st.info("Configuración de empresa activa.")
+        if st.session_state.get("nuevo_asiento"):
+            with st.expander("📝 Nuevo Asiento / Comprobante", expanded=True):
+                with st.form("asiento_erp"):
+                    # CABECERA
+                    col_h1, col_h2, col_h3 = st.columns(3)
+                    fecha_as = col_h1.date_input("Fecha Contable")
+                    origen_as = col_h2.selectbox("Diario / Fuente", ["Diario General (CG)", "Compras (CP)", "Bancos (CB)"])
+                    ref_as = col_h3.text_input("Referencia / Factura #")
+                    desc_as = st.text_input("Descripción General (Glosa)")
 
-# --- MÓDULO CONTABILIDAD ---
-elif opcion == "🏛️ Contabilidad":
-    st.header("Gestión Contable")
-    tab1, tab2 = st.tabs(["📖 Libro Diario", "📅 Períodos"])
-    
-    with tab2:
-        st.subheader("Control de Períodos")
-        # Tu lógica original de periodos...
-        st.write("Periodos operativos.")
+                    # DETALLE (PARTIDAS)
+                    st.markdown("**Líneas de Comprobante**")
+                    # Usamos un editor de datos para máxima velocidad de carga
+                    df_init = pd.DataFrame([
+                        {"Cuenta": "", "Tercero (RIF)": "", "CC": "", "Descripción": "", "Debe": 0.0, "Haber": 0.0}
+                        for _ in range(5)
+                    ])
+                    asiento_data = st.data_editor(df_init, num_rows="dynamic", use_container_width=True, key="editor_asiento")
+
+                    # VALIDACIÓN
+                    total_debe = asiento_data["Debe"].sum()
+                    total_haber = asiento_data["Haber"].sum()
+                    diferencia = round(total_debe - total_haber, 2)
+
+                    c_v1, c_v2, c_v3 = st.columns(3)
+                    c_v1.metric("Total Debe", f"{total_debe:,.2f}")
+                    c_v2.metric("Total Haber", f"{total_haber:,.2f}")
+                    c_v3.metric("Diferencia", f"{diferencia:,.2f}", delta=diferencia, delta_color="inverse")
+
+                    if st.form_submit_button("✅ Postear Asiento"):
+                        # Validar Período
+                        p_check = f"{fecha_as.year}-{str(fecha_as.month).zfill(2)}"
+                        res_p = database.ejecutar_query("SELECT modulo_cg FROM periodos_fiscales WHERE periodo = %s", (p_check,), fetch=True)
+                        
+                        if not res_p or res_p[0] == "Cerrado":
+                            st.error(f"Error: El período {p_check} para Contabilidad está CERRADO.")
+                        elif diferencia != 0:
+                            st.error("Error: El asiento no está cuadrado (Partida Doble).")
+                        else:
+                            # Proceso de guardado Maestro-Detalle
+                            num_correlativo = database.obtener_ultimo_correlativo("AS")
+                            database.ejecutar_transaccion(
+                                "INSERT INTO asientos_cabecera (num_asiento, fecha, concepto, origen, creado_por) VALUES (%s,%s,%s,%s,%s)",
+                                (num_correlativo, fecha_as, desc_as, origen_as, st.session_state['usuario_autenticado'])
+                            )
+                            st.success(f"Asiento {num_correlativo} posteado.")
+                            st.session_state["nuevo_asiento"] = False
+                            st.rerun()
+                
+                if st.button("Cancelar"):
+                    st.session_state["nuevo_asiento"] = False
+                    st.rerun()
+
+        # Visualización del Diario
+        df_diario = pd.read_sql("SELECT num_asiento, fecha, concepto, origen FROM asientos_cabecera ORDER BY id DESC", database.conectar())
+        st.dataframe(df_diario, use_container_width=True)
