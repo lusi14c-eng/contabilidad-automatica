@@ -111,3 +111,20 @@ def obtener_configuracion_empresa():
         finally:
             conn.close()
     return conf
+def ejecutar_query(query, params=None, fetch=False):
+    conn = conectar()
+    res = None
+    if conn:
+        try:
+            with conn.cursor() as c:
+                c.execute(query, params)
+                if fetch:
+                    res = c.fetchone()
+        finally:
+            conn.close()
+    return res
+
+# Actualizamos la tabla de periodos para soportar bloqueos por módulo
+# Ejecuta esto una vez o añádelo a inicializar_db
+# ALTER TABLE periodos_fiscales ADD COLUMN IF NOT EXISTS modulo_cp TEXT DEFAULT 'Abierto';
+# ALTER TABLE periodos_fiscales ADD COLUMN IF NOT EXISTS modulo_cg TEXT DEFAULT 'Abierto';
