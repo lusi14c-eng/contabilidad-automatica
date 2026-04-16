@@ -3,102 +3,78 @@ import pandas as pd
 import database
 from datetime import datetime
 
-st.set_page_config(layout="wide", page_title="ERP Adonai")
+st.set_page_config(layout="wide", page_title="ERP Adonai v3")
 database.inicializar_db()
 
-# --- SIDEBAR SAP STYLE ---
-st.sidebar.title("🚀 ERP Adonai Group")
-modulo = st.sidebar.selectbox("Módulo", ["🏛️ Contabilidad (GL)", "🛍️ Compras (AP)", "⚙️ Configuración"])
+# --- BARRA LATERAL (NAVEGACIÓN) ---
+st.sidebar.title("🏢 Sistema de Gestión")
+modulo = st.sidebar.selectbox("Módulo", ["⚙️ Mi Empresa", "🛍️ Compras (Facturación)", "🏛️ Contabilidad", "👥 Proveedores"])
 
-# --- FUNCIONES DE VALIDACIÓN ---
-def es_periodo_abierto(fecha, modulo_db):
-    p_str = fecha.strftime("%Y-%m")
-    res = database.ejecutar_query(f"SELECT {modulo_db} FROM periodos_fiscales WHERE periodo = %s", (p_str,), fetch=True)
-    return res and res[0][0] == 'Abierto'
+# --- 1. MÓDULO MI EMPRESA (TUS DATOS) ---
+if modulo == "⚙️ Mi Empresa":
+    st.header("⚙️ Configuración de la Entidad")
+    conf = database.ejecutar_query("SELECT nombre_empresa, rif_empresa, direccion, moneda FROM configuracion WHERE id = 1", fetch=True)[0]
+    
+    with st.form("perfil_empresa"):
+        col1, col2 = st.columns(2)
+        n_emp = col1.text_input("Nombre de la Empresa", value=conf[0])
+        r_emp = col2.text_input("RIF Jurídico", value=conf[1])
+        dir_emp = st.text_area("Dirección Fiscal", value=conf[2])
+        if st.form_submit_button("Actualizar Datos"):
+            database.ejecutar_query("UPDATE configuracion SET nombre_empresa=%s, rif_empresa=%s, direccion=%s WHERE id=1", (n_emp, r_emp, dir_emp))
+            st.success("Datos actualizados.")
+            st.rerun()
 
-# --- INTERFAZ DE CONTABILIDAD ---
-if modulo == "🏛️ Contabilidad (GL)":
-    t1, t2, t3, t4 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "📑 Plan de Cuentas", "🔒 Períodos"])
+# --- 2. MÓDULO COMPRAS (REGISTRO DE FACTURAS) ---
+elif modulo == "🛍️ Compras (Facturación)":
+    st.header("🛍️ Registro de Compras y Gastos")
+    t1, t2 = st.tabs(["🆕 Nueva Factura", "📋 Historial de Compras"])
 
-    with t4: # PERÍODOS
-        st.subheader("Control de Períodos Fiscales")
-        c1, c2 = st.columns(2)
-        anio = c1.number_input("Ejercicio Económico", 2024, 2030, 2026)
-        if c2.button("Generar 12 Meses"):
-            for m in range(1, 13):
+    with t1:
+        with st.form("f_compra"):
+            c1, c2, c3 = st.columns(3)
+            fecha = c1.date_input("Fecha Factura")
+            rif_prov = c2.text_input("RIF Proveedor")
+            n_fact = c3.text_input("Número de Factura")
+            
+            base = st.number_input("Base Imponible", min_value=0.0, format="%.2f")
+            iva = base * 0.16 # IVA 16% Sugerido
+            st.write(f"**IVA (16%):** {iva:,.2f} | **Total:** {base + iva:,.2f}")
+            
+            if st.form_submit_button("Registrar Factura"):
+                if rif_prov and n_fact:
+                    # Guardar en Compras
+                    database.ejecutar_query(
+                        "INSERT INTO compras (fecha, rif_proveedor, num_factura, base_imponible, iva_monto, total) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (fecha, rif_prov, n_fact, base, iva, base + iva)
+                    )
+                    st.success(f"Factura {n_fact} registrada correctamente.")
+                else:
+                    st.error("Faltan datos obligatorios.")
+
+# --- 3. MÓDULO CONTABILIDAD (TU MONITOR FISCAL) ---
+elif modulo == "🏛️ Contabilidad":
+    st.header("🏛️ Contabilidad General")
+    t1, t2, t3 = st.tabs(["📖 Libro Diario", "🔒 Períodos", "📑 Plan de Cuentas"])
+
+    with t2: # PERÍODOS
+        st.subheader("Control de Períodos")
+        anio = st.number_input("Año", 2024, 2030, 2026)
+        if st.button("Aperturar Año Fiscal"):
+            for m in range(1,13):
                 p = f"{anio}-{str(m).zfill(2)}"
                 database.ejecutar_query("INSERT INTO periodos_fiscales (periodo) VALUES (%s) ON CONFLICT DO NOTHING", (p,))
             st.rerun()
-
+        
         df_p = pd.read_sql(f"SELECT * FROM periodos_fiscales WHERE periodo LIKE '{anio}-%%' ORDER BY periodo ASC", database.conectar())
-        if not df_p.empty:
-            st.markdown("---")
-            for _, row in df_p.iterrows():
-                cols = st.columns([1, 1, 1, 1, 1])
-                cols[0].write(f"📅 **{row['periodo']}**")
-                # Botones por módulo
-                for i, (m_label, m_db) in enumerate([("CG", "modulo_cg"), ("CP", "modulo_cp"), ("CV", "modulo_cv")]):
-                    btn_label = f"🟢 {m_label}" if row[m_db] == 'Abierto' else f"🔒 {m_label}"
-                    if cols[i+1].button(btn_label, key=f"btn_{m_db}_{row['periodo']}"):
-                        nuevo = 'Cerrado' if row[m_db] == 'Abierto' else 'Abierto'
-                        database.ejecutar_query(f"UPDATE periodos_fiscales SET {m_db} = %s WHERE periodo = %s", (nuevo, row['periodo']))
-                        st.rerun()
+        st.dataframe(df_p)
 
-    with t2: # CENTROS DE COSTO
-        st.subheader("Configuración de Centros de Costo")
-        with st.form("f_cc"):
-            cod, nom = st.columns(2)
-            c_c = cod.text_input("Código")
-            n_c = nom.text_input("Nombre del Departamento")
-            if st.form_submit_button("Guardar"):
-                database.ejecutar_query("INSERT INTO centros_costo (codigo, nombre) VALUES (%s,%s) ON CONFLICT DO NOTHING", (c_c, n_c))
-                st.rerun()
-        st.table(pd.read_sql("SELECT codigo, nombre FROM centros_costo", database.conectar()))
-
-    with t1: # DIARIO (MODO ODOO)
-        st.subheader("Libro Diario General")
-        if st.button("➕ Crear Nuevo Comprobante"):
-            st.session_state['crear_asiento'] = True
-
-        if st.session_state.get('crear_asiento'):
-            with st.form("f_asiento"):
-                c1, c2, c3 = st.columns(3)
-                f = c1.date_input("Fecha")
-                orig = c2.selectbox("Origen", ["CG", "CP", "CB"])
-                conc = c3.text_input("Concepto / Glosa")
-                
-                # Cargar Selectores
-                ctas_raw = database.ejecutar_query("SELECT codigo, nombre FROM plan_cuentas", fetch=True)
-                lista_ctas = [f"{r[0]} | {r[1]}" for r in ctas_raw] if ctas_raw else []
-                cc_raw = database.ejecutar_query("SELECT codigo FROM centros_costo", fetch=True)
-                lista_cc = [r[0] for r in cc_raw] if cc_raw else []
-
-                # Editor Maestro-Detalle
-                df_lines = pd.DataFrame([{"Cuenta": "", "CC": "", "Debe": 0.0, "Haber": 0.0, "RIF": ""} for _ in range(4)])
-                data_edit = st.data_editor(df_lines, num_rows="dynamic", column_config={
-                    "Cuenta": st.column_config.SelectboxColumn("Cuenta", options=lista_ctas),
-                    "CC": st.column_config.SelectboxColumn("CC", options=lista_cc)
-                })
-
-                t_debe, t_haber = data_edit["Debe"].sum(), data_edit["Haber"].sum()
-                st.write(f"**Validación:** Debe {t_debe} | Haber {t_haber} | Dif: {round(t_debe-t_haber,2)}")
-
-                if st.form_submit_button("💾 Postear en Diario"):
-                    if not es_periodo_abierto(f, 'modulo_cg'):
-                        st.error("Período Cerrado para Contabilidad.")
-                    elif t_debe != t_haber or t_debe == 0:
-                        st.error("El asiento debe estar cuadrado y no ser cero.")
-                    else:
-                        num = database.obtener_ultimo_correlativo(orig)
-                        # Guardar Cabecera
-                        database.ejecutar_query("INSERT INTO asientos_cabecera (num_asiento, fecha, concepto, origen) VALUES (%s,%s,%s,%s)", (num, f, conc, orig))
-                        st.success(f"Asiento {num} registrado.")
-                        st.session_state['crear_asiento'] = False
-                        st.rerun()
-
-elif modulo == "⚙️ Configuración":
-    st.title("Ajustes de Sistema")
-    if st.button("📥 Cargar Catálogo de Cuentas SAP Base"):
-        base = [('1', 'ACTIVO', 'A'), ('1.1', 'DISPONIBLE', 'A'), ('2', 'PASIVO', 'P'), ('3', 'PATRIMONIO', 'PT'), ('4', 'INGRESOS', 'I'), ('5', 'GASTOS', 'E')]
-        for c in base: database.ejecutar_query("INSERT INTO plan_cuentas VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", c)
-        st.success("Plan Base Cargado.")
+# --- 4. MÓDULO PROVEEDORES ---
+elif modulo == "👥 Proveedores":
+    st.header("👥 Maestro de Proveedores")
+    with st.form("f_prov"):
+        r = st.text_input("RIF")
+        n = st.text_input("Razón Social")
+        if st.form_submit_button("Añadir Proveedor"):
+            database.ejecutar_query("INSERT INTO entidades (rif, nombre, tipo) VALUES (%s,%s,'Proveedor')", (r, n))
+            st.success("Proveedor guardado.")
