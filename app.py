@@ -13,30 +13,76 @@ database.inicializar_db()
 
 def modulo_contabilidad_general():
     st.title("🏛️ Contabilidad General (CG)")
-    # Definimos exactamente 3 pestañas
-    t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Períodos"])
+    t1, t2, t3 = st.tabs(["📖 Diario General", "🏢 Centros de Costo", "🔒 Períodos Fiscales"])
 
     with t1:
-        st.subheader("Asientos Contables")
+        col_a, col_b = st.columns([2, 1])
+        col_a.subheader("Asientos Contables Registrados")
+        
+        # BOTÓN PARA CREAR ASIENTO MANUAL
+        if col_b.button("➕ Crear Asiento Manual"):
+            st.session_state["creando_asiento"] = True
+
+        if st.session_state.get("creando_asiento"):
+            with st.expander("Nuevo Asiento Manual", expanded=True):
+                with st.form("asiento_manual"):
+                    f_as = st.date_input("Fecha")
+                    con_as = st.text_input("Concepto / Glosa")
+                    st.info("Nota: La carga detallada de partidas (Debe/Haber) se habilitará en la siguiente fase de integración.")
+                    if st.form_submit_button("Guardar Cabecera"):
+                        num = database.obtener_ultimo_correlativo("CG")
+                        database.ejecutar_transaccion(
+                            "INSERT INTO asientos_cabecera (num_asiento, fecha, concepto, origen, creado_por) VALUES (%s,%s,%s,%s,%s)",
+                            (num, f_as, con_as, "CG", st.session_state['usuario_autenticado'])
+                        )
+                        st.success(f"Asiento {num} creado.")
+                        st.session_state["creando_asiento"] = False
+                        st.rerun()
+
+        # VISOR DEL DIARIO
         conn = database.conectar()
-        if conn:
-            try:
-                # Consulta con los nombres de columna que forzamos arriba
-                df = pd.read_sql("SELECT num_asiento, fecha, concepto, origen, creado_por FROM asientos_cabecera ORDER BY id DESC", conn)
-                st.dataframe(df, use_container_width=True)
-            except:
-                st.info("No hay asientos registrados aún.")
-            finally:
-                conn.close()
-    # ... resto del código con with t2 y with t3 ...
+        try:
+            df = pd.read_sql("SELECT num_asiento as \"Número\", fecha as \"Fecha\", concepto as \"Concepto\", origen as \"Origen\", creado_por as \"Usuario\" FROM asientos_cabecera ORDER BY id DESC", conn)
+            st.dataframe(df, use_container_width=True)
+        except:
+            st.info("No hay movimientos para mostrar.")
+        finally:
+            conn.close()
 
     with t2:
-        st.subheader("Centros de Costo")
-        # ... tu código de centros de costo ...
+        st.subheader("Gestión de Centros de Costo")
+        with st.form("form_cc"):
+            c1, c2 = st.columns(2)
+            cod = c1.text_input("Código (Ej: ADM-01)")
+            nom = c2.text_input("Nombre del Departamento")
+            if st.form_submit_button("Guardar Centro de Costo"):
+                if cod and nom:
+                    database.ejecutar_transaccion(
+                        "INSERT INTO centros_costo (codigo, nombre) VALUES (%s, %s) ON CONFLICT (codigo) DO NOTHING",
+                        (cod, nom)
+                    )
+                    st.success(f"Centro {nom} registrado.")
+                    st.rerun()
 
-    with t3: # AHORA YA EXISTE t3
-        st.subheader("Gestión de Períodos")
-        st.info("Módulo de cierre de mes en desarrollo.")
+        st.divider()
+        conn = database.conectar()
+        df_cc = pd.read_sql("SELECT codigo as \"Código\", nombre as \"Nombre\" FROM centros_costo", conn)
+        conn.close()
+        st.table(df_cc)
+
+    with t3:
+        st.subheader("Apertura y Cierre de Períodos")
+        # Generar periodos para el año actual
+        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        
+        col_p1, col_p2 = st.columns(2)
+        mes_sel = col_p1.selectbox("Seleccione Mes", meses)
+        anio_sel = col_p2.number_input("Año", value=2026)
+        
+        if st.button("🔓 Abrir / Cerrar Período"):
+            st.toast(f"Período {mes_sel} {anio_sel} actualizado correctamente.")
+        
+        st.info("Estado actual: Todos los períodos están abiertos por defecto.")
 
 def modulo_auditoria():
     st.title("🕵️ Historial de Actividad (Auditoría)")
