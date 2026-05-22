@@ -2,16 +2,26 @@ import psycopg2
 import streamlit as st
 import hashlib
 
-def conectar():
+# 1. OPTIMIZACIÓN DE VELOCIDAD: Mantiene la conexión abierta en memoria de Streamlit
+@st.cache_resource
+def obtener_conexion_persistente():
     try:
         url = st.secrets["database"]["url"]
         return psycopg2.connect(url, sslmode='require')
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error de conexión crítica: {e}")
         return None
 
+def conectar():
+    """Retorna la conexión optimizada. Si se cae por inactividad, la reconecta."""
+    conn = obtener_conexion_persistente()
+    if conn and conn.closed != 0:
+        st.cache_resource.clear()
+        conn = obtener_conexion_persistente()
+    return conn
+
 def ejecutar_transaccion(query, params=None):
-    """Ejecuta una consulta y hace commit inmediatamente."""
+    """Ejecuta una consulta de forma ultra rápida usando la conexión guardada."""
     conn = conectar()
     if conn:
         try:
@@ -21,12 +31,11 @@ def ejecutar_transaccion(query, params=None):
         except Exception as e:
             conn.rollback()
             st.error(f"Error en transacción: {e}")
-        finally:
-            conn.close()
+        # NOTA: Ya no cerramos la conexión aquí (conn.close() eliminado)
+        # para que la aplicación responda al instante en cada pestaña.
 
 def registrar_log(usuario, accion, tabla, detalle):
-    """Registra las acciones de los usuarios en una tabla de auditoría (Logs)."""
-    # Crea la tabla de logs automáticamente si no existe
+    """Registra los movimientos y auditoría de los usuarios en el sistema."""
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS logs (
         id SERIAL PRIMARY KEY, 
         usuario TEXT, 
@@ -35,7 +44,6 @@ def registrar_log(usuario, accion, tabla, detalle):
         detalle TEXT, 
         fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # Inserta el registro del movimiento
     ejecutar_transaccion(
         "INSERT INTO logs (usuario, accion, tabla, detalle) VALUES (%s, %s, %s, %s)",
         (usuario, accion, tabla, detalle)
@@ -86,8 +94,9 @@ def obtener_ultimo_correlativo(prefijo):
             with conn.cursor() as c:
                 c.execute("SELECT num_asiento FROM asientos_cabecera WHERE num_asiento LIKE %s ORDER BY num_asiento DESC LIMIT 1", (prefijo + '%',))
                 res = c.fetchone()
-        finally:
-            conn.close()
+            # Tampoco cerramos la conexión aquí por rendimiento.
+        except Exception:
+            pass
     if res and res[0]:
         try:
             num = int(res[0].replace(prefijo, "")) + 1
