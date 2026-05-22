@@ -2,7 +2,6 @@ import psycopg2
 import streamlit as st
 import hashlib
 
-# 1. OPTIMIZACIÓN DE VELOCIDAD
 @st.cache_resource
 def obtener_conexion_persistente():
     try:
@@ -35,36 +34,40 @@ def registrar_log(usuario, accion, tabla, detalle):
         id SERIAL PRIMARY KEY, usuario TEXT, accion TEXT, tabla TEXT, detalle TEXT, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     ejecutar_transaccion("INSERT INTO logs (usuario, accion, tabla, detalle) VALUES (%s, %s, %s, %s)", (usuario, accion, tabla, detalle))
 
-def inicializar_db():
-    # 1. CREACIÓN BASE DE SEGURIDAD (Adaptada a tu esquema original con 'username')
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (
-        id SERIAL PRIMARY KEY, username TEXT UNIQUE, clave TEXT, rol TEXT, nombre TEXT)''')
+def obtener_configuracion_empresa():
+    """Retorna los datos con las llaves exactas que exige tu app.py"""
+    conn = conectar()
+    res = None
+    if conn:
+        try:
+            with conn.cursor() as c:
+                c.execute("SELECT nombre_empresa, rif_empresa, direccion_empresa FROM configuracion WHERE id = 1")
+                res = c.fetchone()
+        except Exception: pass
+    
+    if res:
+        return {
+            "nombre_empresa": res[0] if res[0] else "ADONAI GROUP", 
+            "rif_empresa": res[1] if res[1] else "", 
+            "direccion_empresa": res[2] if res[2] else "",
+            "tipo_contribuyente": "Ordinario" # Valor seguro por defecto
+        }
+    return {"nombre_empresa": "ADONAI GROUP", "rif_empresa": "", "direccion_empresa": "", "tipo_contribuyente": "Ordinario"}
 
-    # Aseguramos que existan ambas variantes por si tu app viejo usa una u otra
+def inicializar_db():
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, username TEXT UNIQUE, clave TEXT, rol TEXT, nombre TEXT)''')
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS username TEXT UNIQUE;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS usuario TEXT;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave TEXT;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol TEXT;")
-    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nombre TEXT;")
-
-    # 2. TABLAS CONTABLES Y PERIODOS
+    
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, concepto TEXT, origen TEXT, creado_por TEXT, fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_detail (id SERIAL PRIMARY KEY, asiento_id INTEGER, cuenta_codigo TEXT, debe DECIMAL DEFAULT 0, haber DECIMAL DEFAULT 0)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, concepto TEXT, origen TEXT, creado_por TEXT)''')
+    
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, direccion_empresa TEXT)''')
 
-    # 3. ENTIDADES Y COMPRAS
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS entidades (rif TEXT PRIMARY KEY, nombre TEXT, direccion TEXT, tipo_persona TEXT, tipo_contribuyente TEXT, categoria TEXT, retencion_islr_pct DECIMAL, retencion_iva_pct DECIMAL)''')
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS compras (id SERIAL PRIMARY KEY, fecha DATE, rif_proveedor TEXT, num_factura TEXT, num_control TEXT, monto_exento DECIMAL DEFAULT 0, base_imponible DECIMAL DEFAULT 0, iva_monto DECIMAL DEFAULT 0, total_factura DECIMAL DEFAULT 0, creado_por TEXT)''')
-
-    # 4. CONFIGURACIÓN
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, direccion_empresa TEXT, ut_valor DECIMAL DEFAULT 9.00)''')
-
-    # CORRECCIÓN AQUÍ: Insertamos el 'admin' tanto en 'username' como en 'usuario' para satisfacer la restricción NOT-NULL
     pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    ejecutar_transaccion(
-        "INSERT INTO usuarios (username, usuario, clave, rol, nombre) VALUES ('admin', 'admin', %s, 'Administrador', 'Admin Principal') ON CONFLICT DO NOTHING", 
-        (pw_hash,)
-    )
+    ejecutar_transaccion("INSERT INTO usuarios (username, usuario, clave, rol, nombre) VALUES ('admin', 'admin', %s, 'Administrador', 'Admin Principal') ON CONFLICT DO NOTHING", (pw_hash,))
     ejecutar_transaccion("INSERT INTO configuracion (id, nombre_empresa) VALUES (1, 'ADONAI GROUP') ON CONFLICT (id) DO NOTHING")
 
 def obtener_ultimo_correlativo(prefijo):
@@ -82,29 +85,3 @@ def obtener_ultimo_correlativo(prefijo):
             return f"{prefijo}{str(num).zfill(8)}"
         except: pass
     return f"{prefijo}00000001"
-def obtener_configuracion_empresa():
-    """Retorna los datos de la empresa con las llaves exactas que exige tu app.py."""
-    conn = conectar()
-    res = None
-    if conn:
-        try:
-            with conn.cursor() as c:
-                c.execute("SELECT nombre_empresa, rif_empresa, direccion_empresa FROM configuracion WHERE id = 1")
-                res = c.fetchone()
-        except Exception:
-            pass
-    
-    # Si la base de datos tiene datos, los devolvemos con los nombres exactos del error
-    if res:
-        return {
-            "nombre_empresa": res[0] if res[0] else "ADONAI GROUP", 
-            "rif_empresa": res[1] if res[1] else "", 
-            "direccion_empresa": res[2] if res[2] else ""
-        }
-    
-    # Si la base de datos está vacía por ahora, enviamos estos por defecto para que no se rompa
-    return {
-        "nombre_empresa": "ADONAI GROUP", 
-        "rif_empresa": "", 
-        "direccion_empresa": ""
-    }
