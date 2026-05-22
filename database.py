@@ -3,7 +3,8 @@ import streamlit as st
 import hashlib
 
 @st.cache_resource
-def obtener_conexion_persistente():
+def obtener_conexion_base():
+    """Crea la conexión base inicial y la guarda en caché."""
     try:
         url = st.secrets["database"]["url"]
         return psycopg2.connect(url, sslmode='require')
@@ -12,22 +13,40 @@ def obtener_conexion_persistente():
         return None
 
 def conectar():
-    conn = obtener_conexion_persistente()
-    if conn and conn.closed != 0:
-        st.cache_resource.clear()
-        conn = obtener_conexion_persistente()
+    """Retorna la conexión. Si se detecta cerrada o rota, la regenera de inmediato."""
+    conn = obtener_conexion_base()
+    
+    # Validamos si la conexión existe, si está cerrada (closed != 0) o si falló internamente
+    if conn is None or conn.closed != 0:
+        st.cache_resource.clear()  # Limpiamos el cable roto de la memoria
+        conn = obtener_conexion_base()  # Creamos un cable nuevo
     return conn
 
 def ejecutar_transaccion(query, params=None):
+    """Ejecuta consultas de forma segura controlando errores de interfaz."""
     conn = conectar()
     if conn:
         try:
             with conn.cursor() as c:
                 c.execute(query, params)
             conn.commit()
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            # Si el cable se rompió en medio de la operación, limpiamos caché y reintentamos UNA vez
+            st.cache_resource.clear()
+            conn = conectar()
+            if conn:
+                try:
+                    with conn.cursor() as c:
+                        c.execute(query, params)
+                    conn.commit()
+                except Exception as e:
+                    st.error(f"Error crítico en reintento: {e}")
         except Exception as e:
-            conn.rollback()
-            st.error(f"Error en transacción: {e}")
+            try:
+                conn.rollback()
+            except Exception:
+                pass  # Si la conexión estaba muerta, el rollback fallará, lo ignoramos de forma segura
+            st.error(f"Error en transacción contable: {e}")
 
 def registrar_log(usuario, accion, tabla, detalle):
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS logs (
@@ -35,7 +54,6 @@ def registrar_log(usuario, accion, tabla, detalle):
     ejecutar_transaccion("INSERT INTO logs (usuario, accion, tabla, detalle) VALUES (%s, %s, %s, %s)", (usuario, accion, tabla, detalle))
 
 def obtener_configuracion_empresa():
-    """Retorna los datos con las llaves exactas que exige tu app.py"""
     conn = conectar()
     res = None
     if conn:
@@ -50,7 +68,7 @@ def obtener_configuracion_empresa():
             "nombre_empresa": res[0] if res[0] else "ADONAI GROUP", 
             "rif_empresa": res[1] if res[1] else "", 
             "direccion_empresa": res[2] if res[2] else "",
-            "tipo_contribuyente": "Ordinario" # Valor seguro por defecto
+            "tipo_contribuyente": "Ordinario"
         }
     return {"nombre_empresa": "ADONAI GROUP", "rif_empresa": "", "direccion_empresa": "", "tipo_contribuyente": "Ordinario"}
 
@@ -63,7 +81,6 @@ def inicializar_db():
     
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, concepto TEXT, origen TEXT, creado_por TEXT)''')
-    
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, direccion_empresa TEXT)''')
 
     pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
