@@ -82,3 +82,17 @@ def obtener_ultimo_correlativo(prefijo):
             return f"{prefijo}{str(num).zfill(8)}"
         except: pass
     return f"{prefijo}00000001"
+def obtener_configuracion_empresa():
+    """Retorna los datos de la empresa para que el módulo de compras no falle."""
+    conn = conectar()
+    res = None
+    if conn:
+        try:
+            with conn.cursor() as c:
+                c.execute("SELECT nombre_empresa, rif_empresa, direccion_empresa FROM configuracion WHERE id = 1")
+                res = c.fetchone()
+        except Exception:
+            pass
+    if res:
+        return {"nombre": res[0], "rif": res[1], "direccion": res[2]}
+    return {"nombre": "ADONAI GROUP", "rif": "", "direccion": ""}
