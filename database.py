@@ -36,12 +36,13 @@ def registrar_log(usuario, accion, tabla, detalle):
     ejecutar_transaccion("INSERT INTO logs (usuario, accion, tabla, detalle) VALUES (%s, %s, %s, %s)", (usuario, accion, tabla, detalle))
 
 def inicializar_db():
-    # 1. CREACIÓN BASE DE SEGURIDAD
+    # 1. CREACIÓN BASE DE SEGURIDAD (Adaptada a tu esquema original con 'username')
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (
-        id SERIAL PRIMARY KEY, usuario TEXT UNIQUE, clave TEXT, rol TEXT, nombre TEXT)''')
+        id SERIAL PRIMARY KEY, username TEXT UNIQUE, clave TEXT, rol TEXT, nombre TEXT)''')
 
-    # 🛠️ AUTO-REPARACIÓN: Fuerza a la base de datos a tener las columnas correctas si la tabla era vieja
-    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS usuario TEXT UNIQUE;")
+    # Aseguramos que existan ambas variantes por si tu app viejo usa una u otra
+    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS username TEXT UNIQUE;")
+    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS usuario TEXT;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave TEXT;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol TEXT;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nombre TEXT;")
@@ -49,18 +50,21 @@ def inicializar_db():
     # 2. TABLAS CONTABLES Y PERIODOS
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, concepto TEXT, origen TEXT, creado_por TEXT, fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_detalle (id SERIAL PRIMARY KEY, asiento_id INTEGER REFERENCES asientos_cabecera(id) ON DELETE CASCADE, cuenta_codigo TEXT, centro_costo_id INTEGER, debe DECIMAL DEFAULT 0, haber DECIMAL DEFAULT 0)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_detail (id SERIAL PRIMARY KEY, asiento_id INTEGER, cuenta_codigo TEXT, debe DECIMAL DEFAULT 0, haber DECIMAL DEFAULT 0)''')
 
     # 3. ENTIDADES Y COMPRAS
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS entidades (rif TEXT PRIMARY KEY, nombre TEXT, direccion TEXT, tipo_persona TEXT, tipo_contribuyente TEXT, categoria TEXT, retencion_islr_pct DECIMAL, retencion_iva_pct DECIMAL)''')
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS compras (id SERIAL PRIMARY KEY, fecha DATE, rif_proveedor TEXT REFERENCES entidades(rif), num_factura TEXT, num_control TEXT, monto_exento DECIMAL DEFAULT 0, base_imponible DECIMAL DEFAULT 0, iva_monto DECIMAL DEFAULT 0, total_factura DECIMAL DEFAULT 0, creado_por TEXT)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS compras (id SERIAL PRIMARY KEY, fecha DATE, rif_proveedor TEXT, num_factura TEXT, num_control TEXT, monto_exento DECIMAL DEFAULT 0, base_imponible DECIMAL DEFAULT 0, iva_monto DECIMAL DEFAULT 0, total_factura DECIMAL DEFAULT 0, creado_por TEXT)''')
 
     # 4. CONFIGURACIÓN
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, direccion_empresa TEXT, ut_valor DECIMAL DEFAULT 9.00)''')
 
-    # Guardar Datos Iniciales de forma segura
+    # CORRECCIÓN AQUÍ: Insertamos el 'admin' tanto en 'username' como en 'usuario' para satisfacer la restricción NOT-NULL
     pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    ejecutar_transaccion("INSERT INTO usuarios (usuario, clave, rol, nombre) VALUES ('admin', %s, 'Administrador', 'Admin Principal') ON CONFLICT DO NOTHING", (pw_hash,))
+    ejecutar_transaccion(
+        "INSERT INTO usuarios (username, usuario, clave, rol, nombre) VALUES ('admin', 'admin', %s, 'Administrador', 'Admin Principal') ON CONFLICT DO NOTHING", 
+        (pw_hash,)
+    )
     ejecutar_transaccion("INSERT INTO configuracion (id, nombre_empresa) VALUES (1, 'ADONAI GROUP') ON CONFLICT (id) DO NOTHING")
 
 def obtener_ultimo_correlativo(prefijo):
