@@ -2,7 +2,7 @@ import psycopg2
 import streamlit as st
 import hashlib
 
-# 1. OPTIMIZACIÓN DE VELOCIDAD: Mantiene la conexión abierta en memoria de Streamlit
+# 1. OPTIMIZACIÓN DE VELOCIDAD
 @st.cache_resource
 def obtener_conexion_persistente():
     try:
@@ -13,7 +13,6 @@ def obtener_conexion_persistente():
         return None
 
 def conectar():
-    """Retorna la conexión optimizada. Si se cae por inactividad, la reconecta."""
     conn = obtener_conexion_persistente()
     if conn and conn.closed != 0:
         st.cache_resource.clear()
@@ -21,7 +20,6 @@ def conectar():
     return conn
 
 def ejecutar_transaccion(query, params=None):
-    """Ejecuta una consulta de forma ultra rápida usando la conexión guardada."""
     conn = conectar()
     if conn:
         try:
@@ -31,57 +29,36 @@ def ejecutar_transaccion(query, params=None):
         except Exception as e:
             conn.rollback()
             st.error(f"Error en transacción: {e}")
-        # NOTA: Ya no cerramos la conexión aquí (conn.close() eliminado)
-        # para que la aplicación responda al instante en cada pestaña.
 
 def registrar_log(usuario, accion, tabla, detalle):
-    """Registra los movimientos y auditoría de los usuarios en el sistema."""
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS logs (
-        id SERIAL PRIMARY KEY, 
-        usuario TEXT, 
-        accion TEXT, 
-        tabla TEXT, 
-        detalle TEXT, 
-        fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    
-    ejecutar_transaccion(
-        "INSERT INTO logs (usuario, accion, tabla, detalle) VALUES (%s, %s, %s, %s)",
-        (usuario, accion, tabla, detalle)
-    )
+        id SERIAL PRIMARY KEY, usuario TEXT, accion TEXT, tabla TEXT, detalle TEXT, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    ejecutar_transaccion("INSERT INTO logs (usuario, accion, tabla, detalle) VALUES (%s, %s, %s, %s)", (usuario, accion, tabla, detalle))
 
 def inicializar_db():
-    # 1. SEGURIDAD (USUARIOS Y ROLES)
+    # 1. CREACIÓN BASE DE SEGURIDAD
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (
         id SERIAL PRIMARY KEY, usuario TEXT UNIQUE, clave TEXT, rol TEXT, nombre TEXT)''')
 
+    # 🛠️ AUTO-REPARACIÓN: Fuerza a la base de datos a tener las columnas correctas si la tabla era vieja
+    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS usuario TEXT UNIQUE;")
+    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave TEXT;")
+    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol TEXT;")
+    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nombre TEXT;")
+
     # 2. TABLAS CONTABLES Y PERIODOS
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (
-        id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
-
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (
-        id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, 
-        concepto TEXT, origen TEXT, creado_por TEXT, fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_detalle (
-        id SERIAL PRIMARY KEY, asiento_id INTEGER REFERENCES asientos_cabecera(id) ON DELETE CASCADE,
-        cuenta_codigo TEXT, centro_costo_id INTEGER, debe DECIMAL DEFAULT 0, haber DECIMAL DEFAULT 0)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, concepto TEXT, origen TEXT, creado_por TEXT, fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_detalle (id SERIAL PRIMARY KEY, asiento_id INTEGER REFERENCES asientos_cabecera(id) ON DELETE CASCADE, cuenta_codigo TEXT, centro_costo_id INTEGER, debe DECIMAL DEFAULT 0, haber DECIMAL DEFAULT 0)''')
 
     # 3. ENTIDADES Y COMPRAS
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS entidades (
-        rif TEXT PRIMARY KEY, nombre TEXT, direccion TEXT, tipo_persona TEXT, 
-        tipo_contribuyente TEXT, categoria TEXT, retencion_islr_pct DECIMAL, retencion_iva_pct DECIMAL)''')
-
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS compras (
-        id SERIAL PRIMARY KEY, fecha DATE, rif_proveedor TEXT REFERENCES entidades(rif), 
-        num_factura TEXT, num_control TEXT, monto_exento DECIMAL DEFAULT 0, base_imponible DECIMAL DEFAULT 0, 
-        iva_monto DECIMAL DEFAULT 0, total_factura DECIMAL DEFAULT 0, creado_por TEXT)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS entidades (rif TEXT PRIMARY KEY, nombre TEXT, direccion TEXT, tipo_persona TEXT, tipo_contribuyente TEXT, categoria TEXT, retencion_islr_pct DECIMAL, retencion_iva_pct DECIMAL)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS compras (id SERIAL PRIMARY KEY, fecha DATE, rif_proveedor TEXT REFERENCES entidades(rif), num_factura TEXT, num_control TEXT, monto_exento DECIMAL DEFAULT 0, base_imponible DECIMAL DEFAULT 0, iva_monto DECIMAL DEFAULT 0, total_factura DECIMAL DEFAULT 0, creado_por TEXT)''')
 
     # 4. CONFIGURACIÓN
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (
-        id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, 
-        direccion_empresa TEXT, ut_valor DECIMAL DEFAULT 9.00)''')
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, direccion_empresa TEXT, ut_valor DECIMAL DEFAULT 9.00)''')
 
-    # Datos Iniciales (Usuario Admin: admin123)
+    # Guardar Datos Iniciales de forma segura
     pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
     ejecutar_transaccion("INSERT INTO usuarios (usuario, clave, rol, nombre) VALUES ('admin', %s, 'Administrador', 'Admin Principal') ON CONFLICT DO NOTHING", (pw_hash,))
     ejecutar_transaccion("INSERT INTO configuracion (id, nombre_empresa) VALUES (1, 'ADONAI GROUP') ON CONFLICT (id) DO NOTHING")
@@ -94,9 +71,7 @@ def obtener_ultimo_correlativo(prefijo):
             with conn.cursor() as c:
                 c.execute("SELECT num_asiento FROM asientos_cabecera WHERE num_asiento LIKE %s ORDER BY num_asiento DESC LIMIT 1", (prefijo + '%',))
                 res = c.fetchone()
-            # Tampoco cerramos la conexión aquí por rendimiento.
-        except Exception:
-            pass
+        except Exception: pass
     if res and res[0]:
         try:
             num = int(res[0].replace(prefijo, "")) + 1
