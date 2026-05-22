@@ -83,7 +83,7 @@ def obtener_ultimo_correlativo(prefijo):
         except: pass
     return f"{prefijo}00000001"
 def obtener_configuracion_empresa():
-    """Retorna los datos de la empresa para que el módulo de compras no falle."""
+    """Retorna los datos de la empresa con las llaves exactas que exige tu app.py."""
     conn = conectar()
     res = None
     if conn:
@@ -93,6 +93,18 @@ def obtener_configuracion_empresa():
                 res = c.fetchone()
         except Exception:
             pass
+    
+    # Si la base de datos tiene datos, los devolvemos con los nombres exactos del error
     if res:
-        return {"nombre": res[0], "rif": res[1], "direccion": res[2]}
-    return {"nombre": "ADONAI GROUP", "rif": "", "direccion": ""}
+        return {
+            "nombre_empresa": res[0] if res[0] else "ADONAI GROUP", 
+            "rif_empresa": res[1] if res[1] else "", 
+            "direccion_empresa": res[2] if res[2] else ""
+        }
+    
+    # Si la base de datos está vacía por ahora, enviamos estos por defecto para que no se rompa
+    return {
+        "nombre_empresa": "ADONAI GROUP", 
+        "rif_empresa": "", 
+        "direccion_empresa": ""
+    }
