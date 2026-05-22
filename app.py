@@ -99,21 +99,49 @@ def modulo_gestion_usuarios():
     # ... tabla de usuarios (se mantiene igual) ...
 
 def modulo_configuracion_sistema():
-    st.title("⚙️ Configuración")
+    st.markdown("## ⚙️ Configuración del Sistema")
+    
+    # Llamamos de forma segura a la base de datos
     conf = database.obtener_configuracion_empresa()
-    with st.form("f_conf"):
+    
+    # Creamos el formulario obligatorio exigido por Streamlit
+    with st.form("form_configuracion_global"):
         col1, col2 = st.columns(2)
-        n = col1.text_input("Razón Social", value=conf['nombre_empresa'])
-        r = col1.text_input("RIF", value=conf['rif_empresa'])
-        t = col1.selectbox("Contribuyente", ["Especial", "Ordinario", "Formal"], index=["Especial", "Ordinario", "Formal"].index(conf['tipo_contribuyente']))
-        ut = col2.number_input("UT", value=conf['ut_valor'])
-        if st.form_submit_button("Guardar"):
-            conn = database.conectar()
-            c = conn.cursor()
-            c.execute("UPDATE configuracion SET nombre_empresa=%s, rif_empresa=%s, ut_valor=%s, tipo_contribuyente=%s WHERE id=1", (n, r, ut, t))
-            conn.commit()
-            database.registrar_log(st.session_state['usuario_autenticado'], "EDITAR", "configuracion", "Actualizó datos de la empresa")
-            conn.close()
+        
+        n = col1.text_input("Razón Social", value=conf.get('nombre_empresa', 'ADONAI GROUP'))
+        r = col2.text_input("RIF de la Empresa", value=conf.get('rif_empresa', ''))
+        d = st.text_area("Dirección Fiscal", value=conf.get('direccion_empresa', ''))
+        
+        # --- SOLUCIÓN AL ERROR DEL SELECTBOX Y EL INDEX ---
+        contribuyente_actual = conf.get('tipo_contribuyente', 'Ordinario')
+        opciones_contribuyente = ["Especial", "Ordinario", "Formal"]
+        
+        try:
+            posicion_index = opciones_contribuyente.index(contribuyente_actual)
+        except ValueError:
+            posicion_index = 1  # Por defecto 'Ordinario' si no coincide
+            
+        t = col1.selectbox("Contribuyente", opciones_contribuyente, index=posicion_index)
+        # --------------------------------------------------
+        
+        # EL BOTÓN CORRECTO: Evita el error de "Missing Submit Button"
+        boton_guardar = st.form_submit_button("Actualizar Datos de la Empresa")
+        
+        if boton_guardar:
+            # Guarda los datos en la base de datos
+            database.ejecutar_transaccion(
+                "UPDATE configuracion SET nombre_empresa=%s, rif_empresa=%s, direccion_empresa=%s WHERE id=1",
+                (n, r, d)
+            )
+            
+            # Registra el log sin que falte la función
+            database.registrar_log(
+                st.session_state.get('usuario_autenticado', 'admin'), 
+                "EDITAR", 
+                "configuracion", 
+                "Actualizó datos de la empresa"
+            )
+            st.success("🏢 ¡Datos de la empresa actualizados con éxito!")
             st.rerun()
 
 # --- CONTROL DE ACCESO ---
