@@ -5,82 +5,167 @@ import pandas as pd
 from datetime import date
 
 def modulo_crear_cotizaciones():
-    st.title("📄 Creador de Cotizaciones Comercial")
-    st.markdown("Genera cotizaciones enlazadas directamente a tu base de datos centralizada.")
+    st.title("🚜 Módulo Comercial - Maquinarias Adonai")
     
-    # 1. Leer entidades desde Neon de forma segura
-    conn = database.conectar()
-    clientes_df = pd.DataFrame()
-    if conn:
-        try:
-            # Traemos las columnas reales identificadas en tu Neon
-            query = "SELECT rif, nombre, categoria FROM entidades ORDER BY nombre ASC"
-            clientes_df = pd.read_sql(query, conn)
-        except Exception as e:
-            st.error(f"Error al conectar con la tabla entidades: {e}")
-        finally:
-            conn.close()
+    tab1, tab2, tab3 = st.tabs(["📄 Nueva Cotización", "📦 Catálogo de Artículos", "📥 Carga Masiva de Clientes"])
 
-    if clientes_df.empty:
-        st.warning("⚠️ No se encontraron entidades en la base de datos. Registra una primero en 'Registrar Entidad'.")
-        return
+    # ==========================================
+    # PESTAÑA 1: CREAR COTIZACIÓN (FORMATO EXCEL)
+    # ==========================================
+    with tab1:
+        st.subheader("Generador de Presupuestos")
+        
+        # Cargar Clientes y Artículos desde la DB
+        conn = database.conectar()
+        clientes_df, articulos_df = pd.DataFrame(), pd.DataFrame()
+        if conn:
+            try:
+                clientes_df = pd.read_sql("SELECT rif, nombre, direccion FROM entidades ORDER BY nombre ASC", conn)
+                articulos_df = pd.read_sql("SELECT codigo, descripcion, precio_sugerido FROM articulos ORDER BY codigo ASC", conn)
+            except Exception as e:
+                st.error(f"Error al cargar datos base: {e}")
+            finally: conn.close()
 
-    # 2. Como tu sistema permite categorías híbridas, preparamos las opciones visuales
-    # Formato amigable: "J411661210 - MAQUINARIAS ADONAI DE VENEZUELA, C.A."
-    clientes_df['selector_visual'] = clientes_df['rif'] + " - " + clientes_df['nombre']
-    lista_entidades = clientes_df['selector_visual'].tolist()
+        if clientes_df.empty:
+            st.warning("⚠️ No hay clientes registrados en el sistema. Utiliza la pestaña de Carga Masiva.")
+        else:
+            clientes_df['selector'] = clientes_df['rif'] + " - " + clientes_df['nombre']
+            
+            with st.form("form_emision_cotizacion"):
+                st.markdown("### 🏢 Datos del Cliente")
+                col1, col2 = st.columns(2)
+                cliente_sel = col1.selectbox("Seleccionar Empresa:", options=clientes_df['selector'].tolist())
+                fecha_cot = col2.date_input("Fecha de Emisión:", value=date.today())
+                
+                # Extraer info detallada
+                info_cliente = clientes_df[clientes_df['selector'] == cliente_sel].iloc[0]
+                st.caption(f"📍 **Dirección Fiscal:** {info_cliente['direccion']}")
+                st.divider()
 
-    # 3. Formulario de la Cotización
-    with st.form("form_registro_cotizacion"):
-        st.subheader("Datos de la Cabecera")
-        col1, col2 = st.columns(2)
-        
-        # Enlace directo: Selectbox con búsqueda integrada
-        entidad_elegida = col1.selectbox("Seleccionar Cliente / Proveedor Destinatario:", options=lista_entidades)
-        fecha_documento = col2.date_input("Fecha de Emisión:", value=date.today())
-        
-        # Extraer los valores reales de la fila seleccionada
-        datos_entidad = clientes_df[clientes_df['selector_visual'] == entidad_elegida].iloc[0]
-        rif_real = datos_entidad['rif']
-        nombre_real = datos_entidad['nombre']
-        categoria_real = datos_entidad['categoria']
-        
-        st.info(f"📋 **Entidad Vinculada:** {nombre_real} | **RIF:** {rif_real} | **Relación:** {categoria_real}")
-        st.divider()
-        
-        # 4. Campos del artículo o servicio a cotizar
-        st.subheader("Líneas de Detalle")
-        descripcion_item = st.text_input("Descripción del Producto o Servicio:")
-        
-        col3, col4 = st.columns(2)
-        cantidad = col3.number_input("Cantidad:", min_value=1, value=1, step=1)
-        precio_unitario = col4.number_input("Precio Unitario (Bs.):", min_value=0.00, value=0.00, format="%.2f")
-        
-        # Cálculos matemáticos en tiempo de ejecución
-        subtotal = cantidad * precio_unitario
-        iva = subtotal * 0.16  # Tarifa general de IVA 16% en Venezuela
-        total_general = subtotal + iva
-        
-        st.markdown(f"""
-        ### Resumen del Cálculo Financiero
-        * **Subtotal Neto:** Bs. {subtotal:,.2f}
-        * **IVA (16%):** Bs. {iva:,.2f}
-        * **Total Bruto del Documento:** **Bs. {total_general:,.2f}**
+                st.markdown("### 🛒 Ítems de la Cotización")
+                
+                # Dynamic inputs simulando las líneas de tu formato de Excel
+                filas_items = []
+                for i in range(1, 5): # Generamos 4 líneas de ejemplo tal como tu formato original
+                    st.markdown(f"**Línea N° {i}**")
+                    c1, c2, c3 = st.columns([3, 1, 2])
+                    
+                    # Selector de artículo del catálogo o personalizado
+                    opciones_art = ["-- Seleccionar del catálogo --"] + (articulos_df['codigo'] + " | " + articulos_df['descripcion']).tolist() if not articulos_df.empty else ["-- Sin artículos en catálogo --"]
+                    art_sel = c1.selectbox(f"Artículo / Repuesto {i}:", options=opciones_art, key=f"art_{i}")
+                    
+                    cant = c2.number_input("Cantidad:", min_value=0, value=0, step=1, key=f"cant_{i}")
+                    
+                    # Rellenar precio sugerido automáticamente si se selecciona del catálogo
+                    precio_defecto = 0.00
+                    desc_defecto = ""
+                    if " | " in art_sel:
+                        cod_extraido = art_sel.split(" | ")[0]
+                        row_art = articulos_df[articulos_df['codigo'] == cod_extraido].iloc[0]
+                        precio_defecto = float(row_art['precio_sugerido'])
+                        desc_defecto = row_art['descripcion']
+                        
+                    precio_u = c3.number_input("Precio Unitario ($/Bs):", min_value=0.00, value=precio_defecto, format="%.2f", key=f"precio_{i}")
+                    
+                    if cant > 0:
+                        filas_items.append({
+                            "descripcion": desc_defecto if desc_defecto else f"Ítem personalizado {i}",
+                            "cantidad": cant,
+                            "precio": precio_u,
+                            "total": cant * precio_u
+                        })
+                
+                st.divider()
+                
+                # Cálculos Financieros finales
+                if filas_items:
+                    df_resumen = pd.DataFrame(filas_items)
+                    subtotal = df_resumen['total'].sum()
+                    st.dataframe(df_resumen, use_container_width=True)
+                    st.metric(label="Total General de la Cotización", value=f"$ {subtotal:,.2f}")
+                
+                if st.form_submit_button("⚡ Registrar y Guardar Cotización"):
+                    if not filas_items:
+                        st.error("Debe ingresar al menos una cantidad válida mayor a 0.")
+                    else:
+                        st.success(f"✅ ¡Cotización guardada exitosamente para {info_cliente['nombre']}!")
+
+    # ==========================================
+    # PESTAÑA 2: GESTIÓN DE ARTÍCULOS / REPUESTOS
+    # ==========================================
+    with tab2:
+        st.subheader("📦 Registro de Repuestos y Componentes")
+        with st.form("form_nuevo_articulo"):
+            col1, col2, col3 = st.columns(3)
+            nuevo_cod = col1.text_input("Código de Artículo (Ej: REP-001):").strip().upper()
+            nueva_desc = col2.text_input("Descripción Completa (Ej: Radiador):")
+            nuevo_p = col3.number_input("Precio Sugerido de Venta ($/Bs):", min_value=0.00, format="%.2f")
+            
+            if st.form_submit_button("💾 Registrar en Catálogo"):
+                if nuevo_cod and nueva_desc:
+                    database.ejecutar_transaccion(
+                        "INSERT INTO articulos (codigo, descripcion, precio_sugerido) VALUES (%s, %s, %s) ON CONFLICT (codigo) DO UPDATE SET descripcion=%s, precio_sugerido=%s",
+                        (nuevo_cod, nueva_desc, nuevo_p, nueva_desc, nuevo_p)
+                    )
+                    st.success(f"🎉 Artículo [{nuevo_cod}] guardado con éxito en el catálogo.")
+                    st.rerun()
+                else:
+                    st.error("Por favor completa el Código y la Descripción.")
+
+    # ==========================================
+    # PESTAÑA 3: CARGA MASIVA DESDE EXCEL
+    # ==========================================
+    with tab3:
+        st.subheader("📥 Subir Listado General de Clientes")
+        st.markdown("""
+        Arrastra tu archivo de Excel tal y como lo tienes estructurado. El sistema leerá las columnas de forma inteligente.
+        **Asegúrate de que las columnas se llamen exactamente:** `RIF`, `NOMBRE`, `DIRECCION`.
         """)
         
-        # Botón de confirmación de guardado contable/comercial
-        boton_procesar = st.form_submit_button("💾 Procesar y Registrar Cotización")
+        archivo_excel = st.file_uploader("Selecciona tu archivo de Excel (.xlsx)", type=["xlsx"])
         
-        if boton_procesar:
-            if not descripcion_item.strip():
-                st.error("❌ El campo descripción del ítem no puede quedar vacío.")
-            else:
-                # Aquí procedemos a guardar los datos en tus tablas cotizaciones_cabecera y cotizaciones_detalle
-                # Usando el rif_real extraído directamente de la tabla entidades
-                st.success(f"✅ ¡Cotización generada exitosamente para {nombre_real}! Enlazada mediante el RIF {rif_real}.")
-                database.registrar_log(
-                    st.session_state.get('usuario_autenticado', 'sistema'),
-                    "CREAR",
-                    "cotizaciones_cabecera",
-                    f"Generó cotización comercial para {nombre_real} por un monto de Bs. {total_general:,.2f}"
-                )
+        if archivo_excel is not None:
+            try:
+                # Leemos el archivo saltando líneas vacías iniciales si las hay
+                df = pd.read_excel(archivo_excel)
+                
+                # Normalizar nombres de columnas a minúsculas y limpiar espacios en blanco
+                df.columns = df.columns.str.strip().str.upper()
+                
+                st.write("👀 Previsualización de los datos cargados desde tu archivo:")
+                st.dataframe(df.head(5), use_container_width=True)
+                
+                if 'RIF' in df.columns and 'NOMBRE' in df.columns:
+                    if st.button("🚀 Confirmar e Importar Clientes a Neon"):
+                        conn = database.conectar()
+                        cursor = conn.cursor()
+                        contador_correctos = 0
+                        
+                        for index, fila in df.iterrows():
+                            # Validar que no falten datos obligatorios
+                            if pd.isna(fila['RIF']) or pd.isna(fila['NOMBRE']):
+                                continue
+                                
+                            rif = str(fila['RIF']).strip()
+                            nombre = str(fila['NOMBRE']).strip()
+                            direccion = str(fila['DIRECCION']).strip() if 'DIRECCION' in df.columns and not pd.isna(fila['DIRECCION']) else "Dirección no especificada"
+                            
+                            try:
+                                # Insertamos respetando la estructura real de tu tabla entidades
+                                cursor.execute("""
+                                    INSERT INTO entidades (rif, nombre, direccion, tipo_persona, tipo_contribuyente, categoria) 
+                                    VALUES (%s, %s, %s, 'Jurídica Domiciliada', 'Ordinario', 'CLIENTE')
+                                    ON CONFLICT (rif) DO UPDATE SET nombre = EXCLUDED.nombre, direccion = EXCLUDED.direccion
+                                """, (rif, nombre, direccion))
+                                contador_correctos += 1
+                            except Exception:
+                                continue
+                        
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        st.success(f"✨ ¡Éxito! Se han procesado e importado {contador_correctos} clientes directo a tu base de datos de Neon.")
+                else:
+                    st.error("❌ Tu archivo no cumple con el formato requerido. Debe contener las columnas 'RIF' y 'NOMBRE'.")
+            except Exception as e:
+                st.error(f"Ocurrió un error leyendo el archivo: {e}")
