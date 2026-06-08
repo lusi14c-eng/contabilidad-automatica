@@ -8,7 +8,7 @@ from modulos import entidades, compras
 # 1. Configuración de página
 st.set_page_config(page_title="Adonai ERP", layout="wide")
 
-# 2. Inicializar base de datos y migraciones
+# 2. Inicializar base de datos y correr migraciones limpias
 database.inicializar_db()
 
 # --- MÓDULOS DE CONTABILIDAD GENERAL (CG) ---
@@ -66,7 +66,7 @@ def modulo_auditoria():
     conn.close()
     st.dataframe(df_logs, use_container_width=True)
 
-# --- GESTIÓN DE PERFIL Y USUARIOS CORREGIDOS (CON HASH SHA256) ---
+# --- GESTIÓN DE PERFIL Y USUARIOS CORREGIDOS ---
 
 def modulo_perfil():
     st.title("👤 Mi Perfil")
@@ -104,7 +104,7 @@ def modulo_gestion_usuarios():
                 else:
                     st.error("Complete los campos obligatorios.")
 
-# --- FORMULARIO DE CONFIGURACIÓN GLOBAL ÚNICO (UNIFICADO) ---
+# --- FORMULARIO DE CONFIGURACIÓN GLOBAL ÚNICO ---
 
 def modulo_configuracion_sistema():
     st.title("⚙️ Configuración Global del Sistema")
@@ -149,7 +149,7 @@ def modulo_configuracion_sistema():
             st.success("✅ Configuración corporativa y parámetros fiscales sincronizados en Neon.")
             st.rerun()
 
-# --- SISTEMA GASTRONÓMICO DE CONTROL DE ACCESO ---
+# --- CONTROL DE ACCESO ---
 
 def check_password():
     if "usuario_autenticado" not in st.session_state:
@@ -161,6 +161,7 @@ def check_password():
                 pw_hash = hashlib.sha256(pw.encode()).hexdigest()
                 conn = database.conectar()
                 c = conn.cursor()
+                # Buscamos de manera flexible tanto en la columna username como por el hash de la contraseña
                 c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND clave = %s", (user, pw_hash))
                 res = c.fetchone()
                 conn.close()
@@ -169,17 +170,19 @@ def check_password():
                     st.session_state["rol"] = res[1]
                     st.rerun()
                 else:
-                    st.error("Credenciales incorrectas")
+                    st.error("❌ Credenciales incorrectas")
         return False
     return True
 
-# --- ENRUTADOR ---
+# --- ENRUTADOR DE VISTAS ---
 
 if check_password():
     st.sidebar.title("🚀 Adonai ERP")
     opciones = ["Dashboard", "Registrar Entidad", "Cuentas por Pagar (CP)", "Mi Perfil"]
     
-    if st.session_state["rol"] == "admin":
+    # CORREGIDO: Admitimos variaciones del rol ('admin', 'Administrador', 'ADMIN') de forma segura
+    rol_actual = str(st.session_state.get("rol", "")).lower()
+    if rol_actual in ["admin", "administrador"]:
         opciones += ["Contabilidad General (CG)", "Gestión de Usuarios", "Historial de Log", "Configuración Sistema"]
     
     menu = st.sidebar.selectbox("Módulo:", opciones)
