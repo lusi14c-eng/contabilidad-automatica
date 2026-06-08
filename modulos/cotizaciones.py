@@ -112,29 +112,31 @@ def modulo_crear_cotizaciones():
                 else:
                     st.error("Por favor completa el Código y la Descripción.")
 
-    # ==========================================
+   # ==========================================
     # PESTAÑA 3: CARGA MASIVA DESDE EXCEL
     # ==========================================
     with tab3:
         st.subheader("📥 Subir Listado General de Clientes")
         st.markdown("""
-        Arrastra tu archivo de Excel tal y como lo tienes estructurado. El sistema leerá las columnas de forma inteligente.
-        **Asegúrate de que las columnas se llamen exactamente:** `RIF`, `NOMBRE`, `DIRECCION`.
+        Arrastra tu archivo de Excel tal y como lo tienes estructurado. 
+        El sistema omitirá las filas de título superiores de forma automática.
         """)
         
         archivo_excel = st.file_uploader("Selecciona tu archivo de Excel (.xlsx)", type=["xlsx"])
         
         if archivo_excel is not None:
             try:
-                # Leemos el archivo saltando líneas vacías iniciales si las hay
-                df = pd.read_excel(archivo_excel)
+                # SOLUCIÓN AL ERROR: 'header=2' le indica a pandas que ignore las primeras líneas 
+                # y busque los nombres de columnas en la tercera fila (Fila 3 del Excel)
+                df = pd.read_excel(archivo_excel, header=2)
                 
-                # Normalizar nombres de columnas a minúsculas y limpiar espacios en blanco
+                # Normalizar nombres de columnas eliminando espacios y convirtiendo a mayúsculas
                 df.columns = df.columns.str.strip().str.upper()
                 
-                st.write("👀 Previsualización de los datos cargados desde tu archivo:")
+                st.write("👀 Previsualización corregida de tus datos:")
                 st.dataframe(df.head(5), use_container_width=True)
                 
+                # Validar si tras la corrección ahora sí detectamos las columnas reales
                 if 'RIF' in df.columns and 'NOMBRE' in df.columns:
                     if st.button("🚀 Confirmar e Importar Clientes a Neon"):
                         conn = database.conectar()
@@ -142,16 +144,18 @@ def modulo_crear_cotizaciones():
                         contador_correctos = 0
                         
                         for index, fila in df.iterrows():
-                            # Validar que no falten datos obligatorios
+                            # Omitir registros si la fila está totalmente vacía
                             if pd.isna(fila['RIF']) or pd.isna(fila['NOMBRE']):
                                 continue
                                 
                             rif = str(fila['RIF']).strip()
                             nombre = str(fila['NOMBRE']).strip()
+                            
+                            # Extraer dirección de forma segura si existe en la fila
                             direccion = str(fila['DIRECCION']).strip() if 'DIRECCION' in df.columns and not pd.isna(fila['DIRECCION']) else "Dirección no especificada"
                             
                             try:
-                                # Insertamos respetando la estructura real de tu tabla entidades
+                                # Insertar o actualizar si el RIF ya existe (Evita duplicados caprichosos)
                                 cursor.execute("""
                                     INSERT INTO entidades (rif, nombre, direccion, tipo_persona, tipo_contribuyente, categoria) 
                                     VALUES (%s, %s, %s, 'Jurídica Domiciliada', 'Ordinario', 'CLIENTE')
@@ -164,8 +168,9 @@ def modulo_crear_cotizaciones():
                         conn.commit()
                         cursor.close()
                         conn.close()
-                        st.success(f"✨ ¡Éxito! Se han procesado e importado {contador_correctos} clientes directo a tu base de datos de Neon.")
+                        st.success(f"✨ ¡Éxito total! Se han importado {contador_correctos} clientes directo a tu base de datos centralizada de Neon.")
+                        st.rerun()
                 else:
-                    st.error("❌ Tu archivo no cumple con el formato requerido. Debe contener las columnas 'RIF' y 'NOMBRE'.")
+                    st.error("❌ El sistema aún no detecta las columnas 'RIF' y 'NOMBRE'. Verifica que los nombres de los encabezados en la fila 3 del Excel estén escritos tal cual.")
             except Exception as e:
                 st.error(f"Ocurrió un error leyendo el archivo: {e}")
