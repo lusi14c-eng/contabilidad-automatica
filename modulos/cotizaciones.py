@@ -12,14 +12,10 @@ from googleapiclient.http import MediaIoBaseUpload
 from google.auth import default
 from googleapiclient.discovery import build
 
-# --- FUNCIONES DE SOPORTE (PDF Y DRIVE) ---
-# [MANTÉN TUS FUNCIONES generar_pdf_cotizacion y subir_pdf_a_drive TAL CUAL LAS TENÍAS]
-
 def modulo_crear_cotizaciones():
-    # 1. Título mejorado
-    st.title("📝 Crear Nueva Cotización")
+    st.title("📝 Generar Cotización - Maquinarias Adonai")
     
-    # 2. Cargar datos desde la BD
+    # 1. Cargar datos desde la BD
     conn = database.conectar()
     try:
         clientes_df = pd.read_sql("SELECT rif, nombre, direccion FROM entidades", conn)
@@ -27,20 +23,16 @@ def modulo_crear_cotizaciones():
     finally:
         conn.close()
 
-    with st.form("form_cotizacion_detallada"):
+    # 2. Formulario único y consolidado
+    with st.form("form_cotizacion_final"):
         st.subheader("Datos del Cliente")
-        # Mostrar el RIF junto al nombre
         cliente_opciones = clientes_df.apply(lambda x: f"{x['nombre']} (RIF: {x['rif']})", axis=1)
         cliente_sel = st.selectbox("Seleccionar Cliente:", options=cliente_opciones)
-        
-        # Extraer info real del cliente seleccionado
-        info_cliente = clientes_df[clientes_df['nombre'] == cliente_sel.split(" (RIF:")[0]].iloc[0]
         
         st.subheader("Items de la Cotización")
         filas_items = []
         for i in range(3):
             cols = st.columns([2, 1, 1])
-            # Mostrar Código y Descripción juntos
             art_opciones = articulos_df.apply(lambda x: f"{x['codigo']} | {x['descripcion']}", axis=1)
             art_sel = cols[0].selectbox(f"Artículo {i+1}:", options=["--"] + art_opciones.tolist(), key=f"art_{i}")
             cant = cols[1].number_input(f"Cant:", min_value=0, key=f"cant_{i}")
@@ -54,13 +46,18 @@ def modulo_crear_cotizaciones():
                     "total": cant * precio
                 })
 
-        # Botón de acción
-        if st.form_submit_button("⚡ Generar y Guardar Cotización"):
+        # Botón de acción único
+        submitted = st.form_submit_button("⚡ Generar y Guardar Cotización")
+        
+        if submitted:
             if not filas_items:
-                st.error("Debes agregar al menos un artículo.")
+                st.error("Por favor, agrega al menos un artículo.")
             else:
+                # Extraer info del cliente seleccionado
+                info_cliente = clientes_df[clientes_df['nombre'] == cliente_sel.split(" (RIF:")[0]].iloc[0]
                 nro_control = f"CAD-{random.randint(1000, 9999)}"
-                # Ahora las variables sí existen y el error desaparece
+                
+                # Generar PDF
                 pdf_datos = generar_pdf_cotizacion(
                     {"nombre_empresa": "MAQUINARIAS ADONAI"}, 
                     info_cliente, 
@@ -68,24 +65,15 @@ def modulo_crear_cotizaciones():
                     nro_control, 
                     date.today()
                 )
-                st.success(f"Cotización {nro_control} generada.")
-
-                if emitir:
-                    if not filas_items:
-                        st.error("Por favor, selecciona al menos un artículo.")
-                    else:
-                        # PROCESAMIENTO
-                        info_cliente = clientes_df[clientes_df['nombre'] == cliente_sel].iloc[0]
-                        nro_control = f"CAD-{random.randint(1000, 9999)}"
-                        
-                        pdf_datos = generar_pdf_cotizacion({"nombre_empresa": "MAQUINARIAS ADONAI"}, info_cliente, filas_items, nro_control, date.today())
-                        
-                        pdf_datos.seek(0)
-                        subido = subir_pdf_a_drive(f"Cotizacion_{nro_control}.pdf", pdf_datos)
-                        
-                        if subido:
-                            st.success("¡Respaldo exitoso en Drive!")
-                        st.download_button("📥 Descargar PDF", pdf_datos, "cotizacion.pdf", "application/pdf")
+                
+                # Subir a Drive
+                pdf_datos.seek(0)
+                subido = subir_pdf_a_drive(f"Cotizacion_{nro_control}.pdf", pdf_datos)
+                
+                if subido:
+                    st.success(f"¡Cotización {nro_control} generada y subida a Drive con éxito!")
+                
+                st.download_button("📥 Descargar PDF", pdf_datos, f"Cotizacion_{nro_control}.pdf", "application/pdf")
 
     with tab2:
         st.subheader("📦 Registro de Servicios/repuestos")
