@@ -113,26 +113,59 @@ def modulo_crear_cotizaciones():
     tab1, tab2 = st.tabs(["📄 Nueva Cotización", "📦 Catálogo de Artículos"])
 
     with tab1:
-        # (Aquí va toda tu lógica de lectura de BD, el formulario y el emitir)
-        # ... (Mantén tu código tal cual estaba aquí) ...
+        st.subheader("Generador de Presupuestos")
         
-        if emitir:
-            if not filas_items:
-                st.error("Por favor, ingresa al menos un artículo...")
-            else:
-                # Generar el PDF
-                pdf_datos = generar_pdf_cotizacion(info_empresa, info_cliente, filas_items, nro_control, fecha_cot)
-                nombre_archivo_pdf = f"Cotizacion_{nro_control}_{info_cliente['nombre'].replace(' ', '_')}.pdf"
+        # 1. Carga de datos (esto debe ir fuera del form, pero antes de usarlo)
+        conn = database.conectar()
+        clientes_df, articulos_df = pd.DataFrame(), pd.DataFrame()
+        if conn:
+            try:
+                clientes_df = pd.read_sql("SELECT rif, nombre, direccion FROM entidades ORDER BY nombre ASC", conn)
+                articulos_df = pd.read_sql("SELECT codigo, descripcion, precio_sugerido FROM articulos ORDER BY codigo ASC", conn)
+            except Exception as e:
+                st.error(f"Error cargando datos: {e}")
+            finally: 
+                conn.close()
+
+        if clientes_df.empty:
+            st.warning("⚠️ No hay entidades registradas.")
+        else:
+            clientes_df['selector'] = clientes_df['rif'] + " - " + clientes_df['nombre']
+            
+            # 2. EL FORMULARIO COMPLETO
+            with st.form("form_emision_cotizacion"):
+                st.markdown("### 🏢 Seleccionar Cliente")
+                col1, col2 = st.columns(2)
+                cliente_sel = col1.selectbox("Empresa:", options=clientes_df['selector'].tolist())
+                fecha_cot = col2.date_input("Fecha de Emisión:", value=date.today())
                 
-                # Subir el PDF (CORREGIDO: Aquí dentro del if)
-                pdf_datos.seek(0)
-                with st.spinner("Subiendo respaldo PDF..."):
-                    subido = subir_pdf_a_drive(nombre_archivo_pdf, pdf_datos)
+                info_cliente = clientes_df[clientes_df['selector'] == cliente_sel].iloc[0]
                 
-                if subido:
-                    st.success("¡Guardado!")
+                # ... (Aquí iría tu lógica de filas_items que ya tienes) ...
+                filas_items = [] # Asegúrate de que esta lista se llene con tus loops de artículos
+
+                # BOTÓN DENTRO DEL FORM
+                emitir = st.form_submit_button("⚡ Registrar y Guardar Cotización")
                 
-                st.download_button(label="📥 Descargar PDF", data=pdf_datos, file_name=nombre_archivo_pdf, mime="application/pdf")
+                # 3. LA LÓGICA DEBE ESTAR AQUÍ DENTRO
+                if emitir:
+                    if not filas_items:
+                        st.error("Por favor, ingresa al menos un artículo.")
+                    else:
+                        info_empresa = database.obtener_configuracion_empresa()
+                        nro_control = f"CAD-{random.randint(1000, 9999)}"
+                        
+                        pdf_datos = generar_pdf_cotizacion(info_empresa, info_cliente, filas_items, nro_control, fecha_cot)
+                        nombre_archivo_pdf = f"Cotizacion_{nro_control}_{info_cliente['nombre'].replace(' ', '_')}.pdf"
+                        
+                        pdf_datos.seek(0)
+                        with st.spinner("Subiendo respaldo PDF..."):
+                            subido = subir_pdf_a_drive(nombre_archivo_pdf, pdf_datos)
+                        
+                        if subido:
+                            st.success("¡Cotización guardada y respaldada en Drive!")
+                        
+                        st.download_button(label="📥 Descargar PDF", data=pdf_datos, file_name=nombre_archivo_pdf, mime="application/pdf")
 
     with tab2:
         st.subheader("📦 Registro de Servicios/repuestos")
