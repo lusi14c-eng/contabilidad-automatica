@@ -123,50 +123,57 @@ def modulo_crear_cotizaciones():
                 else:
                     st.error("Por favor completa el Código y la Descripción.")
 
-   # ==========================================
+  # ==========================================
     # PESTAÑA 3: CARGA MASIVA DESDE EXCEL
     # ==========================================
     with tab3:
         st.subheader("📥 Subir Listado General de Clientes")
         st.markdown("""
         Arrastra tu archivo de Excel tal y como lo tienes estructurado. 
-        El sistema omitirá las filas de título superiores de forma automática.
+        El sistema buscará automáticamente tus columnas sin importar los títulos superiores.
         """)
         
         archivo_excel = st.file_uploader("Selecciona tu archivo de Excel (.xlsx)", type=["xlsx"])
         
         if archivo_excel is not None:
             try:
-                # SOLUCIÓN AL ERROR: 'header=2' le indica a pandas que ignore las primeras líneas 
-                # y busque los nombres de columnas en la tercera fila (Fila 3 del Excel)
-                df = pd.read_excel(archivo_excel, header=2)
+                # 1. Leer el Excel desde el inicio puro (sin forzar filas rígidas)
+                df_crudo = pd.read_excel(archivo_excel, header=None)
                 
-                # Normalizar nombres de columnas eliminando espacios y convirtiendo a mayúsculas
-                df.columns = df.columns.str.strip().str.upper()
+                # 2. ESCANEO DINÁMICO: Buscaremos en qué fila están las palabras RIF y NOMBRE
+                fila_cabecera = None
+                for idx, fila in df_crudo.iterrows():
+                    # Convertimos toda la fila a texto en mayúsculas para buscar sin errores
+                    valores_fila = fila.astype(str).str.strip().str.upper().tolist()
+                    if 'RIF' in valores_fila and 'NOMBRE' in valores_fila:
+                        fila_cabecera = idx
+                        break
                 
-                st.write("👀 Previsualización corregida de tus datos:")
-                st.dataframe(df.head(5), use_container_width=True)
-                
-                # Validar si tras la corrección ahora sí detectamos las columnas reales
-                if 'RIF' in df.columns and 'NOMBRE' in df.columns:
+                if fila_cabecera is not None:
+                    # Re-construimos el DataFrame usando la fila detectada dinámicamente como cabecera
+                    df = pd.read_excel(archivo_excel, header=fila_cabecera)
+                    df.columns = df.columns.str.strip().str.upper()
+                    
+                    st.write("✨ ¡Estructura detectada correctamente! Previsualización:")
+                    st.dataframe(df.head(5), use_container_width=True)
+                    
+                    # El botón de importación masiva ahora es 100% seguro
                     if st.button("🚀 Confirmar e Importar Clientes a Neon"):
                         conn = database.conectar()
                         cursor = conn.cursor()
                         contador_correctos = 0
                         
                         for index, fila in df.iterrows():
-                            # Omitir registros si la fila está totalmente vacía
-                            if pd.isna(fila['RIF']) or pd.isna(fila['NOMBRE']):
+                            # Si el RIF está vacío o es igual al nombre de la cabecera, lo saltamos
+                            if pd.isna(fila['RIF']) or pd.isna(fila['NOMBRE']) or str(fila['RIF']).strip().upper() == 'RIF':
                                 continue
                                 
                             rif = str(fila['RIF']).strip()
                             nombre = str(fila['NOMBRE']).strip()
-                            
-                            # Extraer dirección de forma segura si existe en la fila
                             direccion = str(fila['DIRECCION']).strip() if 'DIRECCION' in df.columns and not pd.isna(fila['DIRECCION']) else "Dirección no especificada"
                             
                             try:
-                                # Insertar o actualizar si el RIF ya existe (Evita duplicados caprichosos)
+                                # Inserción masiva limpia en tu esquema de Neon
                                 cursor.execute("""
                                     INSERT INTO entidades (rif, nombre, direccion, tipo_persona, tipo_contribuyente, categoria) 
                                     VALUES (%s, %s, %s, 'Jurídica Domiciliada', 'Ordinario', 'CLIENTE')
@@ -179,9 +186,10 @@ def modulo_crear_cotizaciones():
                         conn.commit()
                         cursor.close()
                         conn.close()
-                        st.success(f"✨ ¡Éxito total! Se han importado {contador_correctos} clientes directo a tu base de datos centralizada de Neon.")
+                        st.success(f"🎉 ¡Éxito total! Se han importado {contador_correctos} clientes directo a tu tabla de Neon.")
                         st.rerun()
                 else:
-                    st.error("❌ El sistema aún no detecta las columnas 'RIF' y 'NOMBRE'. Verifica que los nombres de los encabezados en la fila 3 del Excel estén escritos tal cual.")
+                    st.error("❌ No logramos encontrar una fila que contenga las columnas 'RIF' y 'NOMBRE' juntas en tu documento. Revisa que estén escritas de esa forma.")
+                    
             except Exception as e:
                 st.error(f"Ocurrió un error leyendo el archivo: {e}")
