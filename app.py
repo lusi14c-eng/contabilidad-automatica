@@ -169,13 +169,14 @@ def check_password():
                 
                 # Paso 2: Si no lo halla, buscar por la estructura vieja (Texto plano en la columna 'password')
                 if not res:
-                    c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND password = %s", (user, pw))
-                    res = c.fetchone()
-                    
-                    if res:
-                        # ¡AUTOMIGRACIÓN EN CALIENTE! Encriptamos al usuario para blindar su seguridad
-                        c.execute("UPDATE usuarios SET clave = %s WHERE username = %s", (pw_hash, user))
-                        conn.commit()
+                    try:
+                        c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND password = %s", (user, pw))
+                        res = c.fetchone()
+                        if res:
+                            # ¡AUTOMIGRACIÓN EN CALIENTE! Encriptamos al usuario para blindar su seguridad
+                            c.execute("UPDATE usuarios SET clave = %s WHERE username = %s", (pw_hash, user))
+                            conn.commit()
+                    except Exception: pass
                 
                 conn.close()
                 
@@ -192,7 +193,9 @@ def check_password():
 
 if check_password():
     st.sidebar.title("🚀 Adonai ERP")
-    opciones = ["Dashboard", "Registrar Entidad", "Cuentas por Pagar (CP)", "Mi Perfil"]
+    
+    # ¡CORREGIDO AQUÍ! Agregamos "Crear Cotización" al menú base para que aparezca en la barra lateral
+    opciones = ["Dashboard", "Registrar Entidad", "Crear Cotización", "Cuentas por Pagar (CP)", "Mi Perfil"]
     
     # Tolerancia a variaciones: Acepta tanto 'admin' como 'Administrador' proveniente de Neon
     rol_actual = str(st.session_state.get("rol", "")).lower().strip()
@@ -207,13 +210,14 @@ if check_password():
             del st.session_state["rol"]
         st.rerun()
 
+    # Ejecución de vistas según la opción seleccionada
     if menu == "Dashboard":
         st.title("📈 Dashboard Finanzas")
         st.write(f"Bienvenido al sistema, **{st.session_state['usuario_autenticado'].upper()}**")
     elif menu == "Registrar Entidad":
         entidades.modulo_maestro_entidades()
     elif menu == "Crear Cotización":
-        cotizaciones.modulo_crear_cotizaciones() # <-- NUEVA RUTA ENLAZADA
+        cotizaciones.modulo_crear_cotizaciones()  # <-- Ejecuta correctamente el módulo comercial
     elif menu == "Cuentas por Pagar (CP)":
         compras.modulo_compras()
     elif menu == "Mi Perfil":
