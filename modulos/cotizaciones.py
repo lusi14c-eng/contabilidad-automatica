@@ -18,14 +18,14 @@ from reportlab.lib import colors
 # ==========================================
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
 def subida_credenciales_drive():
-    """Autentica con la API de Google Drive usando los secretos del entorno."""
-    info_claves = dict(st.secrets["gcp_service_account"])
-    # Esta línea se encarga de convertir los \n de texto en saltos reales para Google
-    info_claves["private_key"] = info_claves["private_key"].replace("\\n", "\n")
-    credenciales = service_account.Credentials.from_service_account_info(info_claves)
+    # Esto lee los datos directamente de tu archivo TOML de secretos
+    info = dict(st.secrets["gcp_service_account"])
+    # Ajuste necesario para que la clave privada funcione con los \n
+    info["private_key"] = info["private_key"].replace("\\n", "\n")
+    
+    credenciales = service_account.Credentials.from_service_account_info(info)
     return build('drive', 'v3', credentials=credenciales)
 
 def generar_pdf_cotizacion(info_empresa, cliente, items, nro_cotizacion, fecha):
