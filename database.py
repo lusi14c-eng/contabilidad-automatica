@@ -13,13 +13,11 @@ def obtener_conexion_base():
         return None
 
 def conectar():
-    """Retorna la conexión. Si se detecta cerrada o rota, la regenera de inmediato."""
+    """Retorna la conexión. Si se detecta cerrada o rota, la regenera."""
     conn = obtener_conexion_base()
-    
-    # Validamos si la conexión existe, si está cerrada (closed != 0) o si falló internamente
     if conn is None or conn.closed != 0:
-        obtener_conexion_base.clear()  # <-- CORREGIDO: Borra la caché de la función correctamente
-        conn = obtener_conexion_base()  # Creamos un cable nuevo
+        st.cache_resource.clear()  # Limpia la caché si la conexión se rompió
+        conn = obtener_conexion_base()
     return conn
 
 def ejecutar_transaccion(query, params=None):
@@ -31,8 +29,7 @@ def ejecutar_transaccion(query, params=None):
                 c.execute(query, params)
             conn.commit()
         except (psycopg2.InterfaceError, psycopg2.OperationalError):
-            # Si el cable se rompió en medio de la operación, limpiamos caché y reintentamos UNA vez
-            obtener_conexion_base.clear()  # <-- CORREGIDO
+            st.cache_resource.clear()
             conn = conectar()
             if conn:
                 try:
@@ -44,14 +41,18 @@ def ejecutar_transaccion(query, params=None):
         except Exception as e:
             try:
                 conn.rollback()
-            except Exception:
-                pass  # Si la conexión estaba muerta, el rollback fallará, lo ignoramos de forma segura
-            st.error(f"Error en transacción contable: {e}")
+            except Exception: pass
+            st.error(f"Error en transacción: {e}")
 
-def registrar_log(usuario, accion, tabla, detalle):
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS logs (
-        id SERIAL PRIMARY KEY, usuario TEXT, accion TEXT, tabla TEXT, detalle TEXT, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    ejecutar_transaccion("INSERT INTO logs (usuario, accion, tabla, detalle) VALUES (%s, %s, %s, %s)", (usuario, accion, tabla, detalle))
+def registrar_log(usuario, accion, tabla_afectada, detalle):
+    """Sincronizado con la tabla logs_actividad real de tu base de datos Neon."""
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS logs_actividad (
+        id SERIAL PRIMARY KEY, fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+        usuario TEXT, accion TEXT, tabla_afectada TEXT, detalle TEXT)''')
+    ejecutar_transaccion(
+        "INSERT INTO logs_actividad (usuario, accion, tabla_afectada, detalle) VALUES (%s, %s, %s, %s)", 
+        (usuario, accion, tabla_afectada, detalle)
+    )
 
 def obtener_configuracion_empresa():
     conn = conectar()
@@ -68,62 +69,32 @@ def obtener_configuracion_empresa():
             "nombre_empresa": res[0] if res[0] else "ADONAI GROUP", 
             "rif_empresa": res[1] if res[1] else "", 
             "direccion_empresa": res[2] if res[2] else "",
-            "tipo_contribuyente": "Ordinario"
+            "tipo_contribuyente": "Ordinario",
+            "ut_valor": 0.00,
+            "factor_sustraendo": 83.3334
         }
-    return {"nombre_empresa": "ADONAI GROUP", "rif_empresa": "", "direccion_empresa": "", "tipo_contribuyente": "Ordinario"}
+    return {"nombre_empresa": "ADONAI GROUP", "rif_empresa": "", "direccion_empresa": "", "tipo_contribuyente": "Ordinario", "ut_valor": 0.00, "factor_sustraendo": 83.3334}
 
 def inicializar_db():
-    # Estructura de tabla de usuarios tolerante a cambios
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, username TEXT UNIQUE, clave TEXT, rol TEXT, nombre TEXT)''')
+    """Garantiza la existencia de las tablas principales respetando las columnas existentes."""
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, username TEXT UNIQUE, password TEXT, rol TEXT, usuario TEXT, clave TEXT)''')
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS username TEXT UNIQUE;")
-    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS usuario TEXT;")
+    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS password TEXT;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave TEXT;")
-    ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS password TEXT;") # Retrocompatibilidad
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol TEXT;")
     
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, concepto TEXT, origen TEXT, creado_por TEXT)''')
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, direccion_empresa TEXT)''')
-
-    # --- NUEVAS TABLAS PARA EL MÓDULO DE COTIZACIONES ---
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS cotizaciones_cabecera (
-        id SERIAL PRIMARY KEY, 
-        num_cotizacion TEXT UNIQUE, 
-        cliente TEXT, 
-        fecha DATE, 
-        subtotal NUMERIC(15,2), 
-        iva NUMERIC(15,2), 
-        total NUMERIC(15,2), 
-        creado_por TEXT,
-        drive_file_id TEXT
-    )''')
     
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS cotizaciones_detalle (
-        id SERIAL PRIMARY KEY, 
-        cotizacion_id INT, 
-        descripcion TEXT, 
-        cantidad NUMERIC(12,2), 
-        precio_unitario NUMERIC(15,2), 
-        total_linea NUMERIC(15,2)
-    )''')
+    # Asegurar parámetros fiscales en configuración
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (
+        id INTEGER PRIMARY KEY DEFAULT 1, nombre_empresa TEXT, rif_empresa TEXT, 
+        direccion_empresa TEXT, tipo_contribuyente TEXT, ut_valor NUMERIC(12,2), factor_sustraendo NUMERIC(12,4))''')
+    ejecutar_transaccion("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS tipo_contribuyente TEXT;")
+    ejecutar_transaccion("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS ut_valor NUMERIC(12,2);")
+    ejecutar_transaccion("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS factor_sustraendo NUMERIC(12,4);")
 
-    # Registro por defecto de administrador y configuración
+    # Inicializaciones por defecto
     pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    ejecutar_transaccion("INSERT INTO usuarios (username, usuario, clave, rol, nombre) VALUES ('admin', 'admin', %s, 'Administrador', 'Admin Principal') ON CONFLICT DO NOTHING", (pw_hash,))
+    ejecutar_transaccion("INSERT INTO usuarios (username, usuario, password, rol) VALUES ('admin', 'admin', 'admin123', 'admin') ON CONFLICT DO NOTHING")
     ejecutar_transaccion("INSERT INTO configuracion (id, nombre_empresa) VALUES (1, 'ADONAI GROUP') ON CONFLICT (id) DO NOTHING")
-
-def obtener_ultimo_correlativo(prefijo):
-    conn = conectar()
-    res = None
-    if conn:
-        try:
-            with conn.cursor() as c:
-                c.execute("SELECT num_asiento FROM asientos_cabecera WHERE num_asiento LIKE %s ORDER BY num_asiento DESC LIMIT 1", (prefijo + '%',))
-                res = c.fetchone()
-        except Exception: pass
-    if res and res[0]:
-        try:
-            num = int(res[0].replace(prefijo, "")) + 1
-            return f"{prefijo}{str(num).zfill(8)}"
-        except: pass
-    return f"{prefijo}00000001"
