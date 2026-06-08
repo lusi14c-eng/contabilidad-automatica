@@ -1,8 +1,13 @@
+# parametro.py
+import streamlit as st
+import database
+import pandas as pd
+
 def modulo_configuracion_sistema():
     st.title("⚙️ Configuración Global del Sistema")
     conf = database.obtener_configuracion_empresa()
     
-    with st.form("form_configuracion_global"):
+    with st.form("form_config_global"):
         st.subheader("Datos del Agente de Retención (Tu Empresa)")
         col1, col2 = st.columns(2)
         n = col1.text_input("Razón Social / Nombre Legal", value=conf.get('nombre_empresa', 'ADONAI GROUP'))
