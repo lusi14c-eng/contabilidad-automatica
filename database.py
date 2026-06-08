@@ -118,6 +118,26 @@ def inicializar_db():
     """, (pw_hash,))
     
     ejecutar_transaccion("INSERT INTO configuracion (id, nombre_empresa) VALUES (1, 'ADONAI GROUP') ON CONFLICT (id) DO NOTHING")
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS cotizaciones_cabecera (
+        id SERIAL PRIMARY KEY, 
+        num_cotizacion TEXT UNIQUE, 
+        cliente TEXT, 
+        fecha DATE, 
+        subtotal NUMERIC(15,2), 
+        iva NUMERIC(15,2), 
+        total NUMERIC(15,2), 
+        creado_por TEXT,
+        drive_file_id TEXT
+    )''')
+    
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS cotizaciones_detalle (
+        id SERIAL PRIMARY KEY, 
+        cotizacion_id INT, 
+        descripcion TEXT, 
+        cantidad NUMERIC(12,2), 
+        precio_unitario NUMERIC(15,2), 
+        total_linea NUMERIC(15,2)
+    )''')
 
 def obtener_ultimo_correlativo(prefijo):
     conn = conectar()
