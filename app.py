@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import database
@@ -66,7 +67,7 @@ def modulo_auditoria():
     conn.close()
     st.dataframe(df_logs, use_container_width=True)
 
-# --- GESTIÓN DE PERFIL Y USUARIOS CORREGIDOS ---
+# --- GESTIÓN DE PERFIL Y USUARIOS ---
 
 def modulo_perfil():
     st.title("👤 Mi Perfil")
@@ -149,7 +150,7 @@ def modulo_configuracion_sistema():
             st.success("✅ Configuración corporativa y parámetros fiscales sincronizados en Neon.")
             st.rerun()
 
-# --- CONTROL DE ACCESO ---
+# --- CONTROL DE ACCESO (MIGRACIÓN CONTABLE INTELIGENTE) ---
 
 def check_password():
     if "usuario_autenticado" not in st.session_state:
@@ -161,27 +162,40 @@ def check_password():
                 pw_hash = hashlib.sha256(pw.encode()).hexdigest()
                 conn = database.conectar()
                 c = conn.cursor()
-                # Buscamos de manera flexible tanto en la columna username como por el hash de la contraseña
+                
+                # Paso 1: Intentar buscar por la estructura nueva (Criptográfica en la columna 'clave')
                 c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND clave = %s", (user, pw_hash))
                 res = c.fetchone()
+                
+                # Paso 2: Si no lo halla, buscar por la estructura vieja (Texto plano en la columna 'password')
+                if not res:
+                    c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND password = %s", (user, pw))
+                    res = c.fetchone()
+                    
+                    if res:
+                        # ¡AUTOMIGRACIÓN EN CALIENTE! Encriptamos al usuario para blindar su seguridad
+                        c.execute("UPDATE usuarios SET clave = %s WHERE username = %s", (pw_hash, user))
+                        conn.commit()
+                
                 conn.close()
+                
                 if res:
                     st.session_state["usuario_autenticado"] = res[0]
                     st.session_state["rol"] = res[1]
                     st.rerun()
                 else:
-                    st.error("❌ Credenciales incorrectas")
+                    st.error("❌ Credenciales incorrectas o combinación de columnas no válida.")
         return False
     return True
 
-# --- ENRUTADOR DE VISTAS ---
+# --- ENRUTADOR DE VISTAS (LÓGICA TOLERANTE A ROLES) ---
 
 if check_password():
     st.sidebar.title("🚀 Adonai ERP")
     opciones = ["Dashboard", "Registrar Entidad", "Cuentas por Pagar (CP)", "Mi Perfil"]
     
-    # CORREGIDO: Admitimos variaciones del rol ('admin', 'Administrador', 'ADMIN') de forma segura
-    rol_actual = str(st.session_state.get("rol", "")).lower()
+    # Tolerancia a variaciones: Acepta tanto 'admin' como 'Administrador' proveniente de Neon
+    rol_actual = str(st.session_state.get("rol", "")).lower().strip()
     if rol_actual in ["admin", "administrador"]:
         opciones += ["Contabilidad General (CG)", "Gestión de Usuarios", "Historial de Log", "Configuración Sistema"]
     
