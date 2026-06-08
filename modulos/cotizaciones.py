@@ -16,39 +16,59 @@ from googleapiclient.discovery import build
 # [MANTÉN TUS FUNCIONES generar_pdf_cotizacion y subir_pdf_a_drive TAL CUAL LAS TENÍAS]
 
 def modulo_crear_cotizaciones():
-    st.title("📄 Módulo Comercial - Maquinarias Adonai")
-    tab1, tab2 = st.tabs(["📄 Nueva Cotización", "📦 Catálogo de Artículos"])
-
-    # 1. CARGA DE DATOS (ESENCIAL)
+    # 1. Título mejorado
+    st.title("📝 Crear Nueva Cotización")
+    
+    # 2. Cargar datos desde la BD
     conn = database.conectar()
     try:
         clientes_df = pd.read_sql("SELECT rif, nombre, direccion FROM entidades", conn)
         articulos_df = pd.read_sql("SELECT codigo, descripcion, precio_sugerido FROM articulos", conn)
-    except:
-        clientes_df, articulos_df = pd.DataFrame(), pd.DataFrame()
     finally:
         conn.close()
 
-    with tab1:
-        if clientes_df.empty:
-            st.warning("No hay clientes registrados en la base de datos.")
-        else:
-            with st.form("form_emision"):
-                cliente_sel = st.selectbox("Seleccionar Cliente", clientes_df['nombre'])
-                
-                # SELECCIÓN DINÁMICA DE ARTÍCULOS
-                filas_items = []
-                for i in range(4):
-                    st.write(f"--- Línea {i+1} ---")
-                    c1, c2 = st.columns(2)
-                    art = c1.selectbox(f"Artículo {i+1}", ["--"] + articulos_df['descripcion'].tolist(), key=f"art_{i}")
-                    cant = c2.number_input(f"Cantidad {i+1}", min_value=0, key=f"cant_{i}")
-                    
-                    if art != "--" and cant > 0:
-                        precio = articulos_df[articulos_df['descripcion'] == art]['precio_sugerido'].values[0]
-                        filas_items.append({"descripcion": art, "cantidad": cant, "precio": precio, "total": cant * precio})
+    with st.form("form_cotizacion_detallada"):
+        st.subheader("Datos del Cliente")
+        # Mostrar el RIF junto al nombre
+        cliente_opciones = clientes_df.apply(lambda x: f"{x['nombre']} (RIF: {x['rif']})", axis=1)
+        cliente_sel = st.selectbox("Seleccionar Cliente:", options=cliente_opciones)
+        
+        # Extraer info real del cliente seleccionado
+        info_cliente = clientes_df[clientes_df['nombre'] == cliente_sel.split(" (RIF:")[0]].iloc[0]
+        
+        st.subheader("Items de la Cotización")
+        filas_items = []
+        for i in range(3):
+            cols = st.columns([2, 1, 1])
+            # Mostrar Código y Descripción juntos
+            art_opciones = articulos_df.apply(lambda x: f"{x['codigo']} | {x['descripcion']}", axis=1)
+            art_sel = cols[0].selectbox(f"Artículo {i+1}:", options=["--"] + art_opciones.tolist(), key=f"art_{i}")
+            cant = cols[1].number_input(f"Cant:", min_value=0, key=f"cant_{i}")
+            precio = cols[2].number_input(f"Precio:", min_value=0.0, value=0.0, key=f"prec_{i}")
+            
+            if art_sel != "--" and cant > 0:
+                filas_items.append({
+                    "descripcion": art_sel,
+                    "cantidad": cant,
+                    "precio": precio,
+                    "total": cant * precio
+                })
 
-                emitir = st.form_submit_button("⚡ Registrar y Guardar Cotización")
+        # Botón de acción
+        if st.form_submit_button("⚡ Generar y Guardar Cotización"):
+            if not filas_items:
+                st.error("Debes agregar al menos un artículo.")
+            else:
+                nro_control = f"CAD-{random.randint(1000, 9999)}"
+                # Ahora las variables sí existen y el error desaparece
+                pdf_datos = generar_pdf_cotizacion(
+                    {"nombre_empresa": "MAQUINARIAS ADONAI"}, 
+                    info_cliente, 
+                    filas_items, 
+                    nro_control, 
+                    date.today()
+                )
+                st.success(f"Cotización {nro_control} generada.")
 
                 if emitir:
                     if not filas_items:
