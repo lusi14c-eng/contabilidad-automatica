@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import database
+import parametro
 import hashlib
 from datetime import datetime
 from modulos import entidades, compras, cotizaciones
@@ -229,4 +230,4 @@ if check_password():
     elif menu == "Historial de Log":
         modulo_auditoria()
     elif menu == "Configuración Sistema":
-        modulo_configuracion_sistema()
+        parametro.modulo_configuracion_sistema()
