@@ -18,21 +18,17 @@ from reportlab.lib import colors
 # ==========================================
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload  # <--- ESTA ES LA LÍNEA QUE FALTA
+from google.auth import default # Para la conexión automática
 
 def subida_credenciales_drive():
-    """
-    Autenticación simplificada.
-    Como ya dimos permiso de Editor a la cuenta de servicio en la carpeta de Drive,
-    solo necesitamos el email de la cuenta para identificar el servicio.
-    """
+    """Autenticación para subir archivos a Google Drive."""
     try:
-        # Usamos 'get_application_default' que busca automáticamente las credenciales 
-        # del entorno si se despliega en la nube, o usa el email directamente.
-        from google.auth import default
+        # Esto usará los permisos del entorno (en Streamlit Cloud funciona automático)
         creds, _ = default(scopes=["https://www.googleapis.com/auth/drive"])
         return build('drive', 'v3', credentials=creds)
     except Exception as e:
-        st.error(f"Error en la conexión automática a Drive: {e}")
+        st.error(f"Error al conectar con Google Drive: {e}")
         return None
 
 def generar_pdf_cotizacion(info_empresa, cliente, items, nro_cotizacion, fecha):
