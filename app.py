@@ -4,7 +4,7 @@ import pandas as pd
 import database
 import hashlib
 from datetime import datetime
-from modulos import entidades, compras
+from modulos import entidades, compras, cotizaciones
 
 # 1. Configuración de página
 st.set_page_config(page_title="Adonai ERP", layout="wide")
@@ -212,6 +212,8 @@ if check_password():
         st.write(f"Bienvenido al sistema, **{st.session_state['usuario_autenticado'].upper()}**")
     elif menu == "Registrar Entidad":
         entidades.modulo_maestro_entidades()
+    elif menu == "Crear Cotización":
+        cotizaciones.modulo_crear_cotizaciones() # <-- NUEVA RUTA ENLAZADA
     elif menu == "Cuentas por Pagar (CP)":
         compras.modulo_compras()
     elif menu == "Mi Perfil":
