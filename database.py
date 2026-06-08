@@ -69,25 +69,31 @@ def obtener_configuracion_empresa():
             "rif_empresa": res[1] if res[1] else "", 
             "direccion_empresa": res[2] if res[2] else "",
             "tipo_contribuyente": res[3] if res[3] else "Ordinario",
-            "ut_valor": float(res[4]) if res[4] is not null else 0.00,
-            "factor_sustraendo": float(res[5]) if res[5] is not null else 83.3334
+            "ut_valor": float(res[4]) if res[4] is not None else 0.00, # CORREGIDO: de 'is not null' a 'is not None'
+            "factor_sustraendo": float(res[5]) if res[5] is not None else 83.3334 # CORREGIDO: de 'is not null' a 'is not None'
         }
     return {"nombre_empresa": "ADONAI GROUP", "rif_empresa": "", "direccion_empresa": "", "tipo_contribuyente": "Ordinario", "ut_valor": 0.00, "factor_sustraendo": 83.3334}
 
 def inicializar_db():
-    # Creación e igualación estructural de la tabla de Usuarios
-    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, username TEXT UNIQUE, clave TEXT, rol TEXT, nombre TEXT)''')
+    # Creación de tablas base asegurando restricciones únicas
+    ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS usuarios (
+        id SERIAL PRIMARY KEY, 
+        username TEXT UNIQUE, 
+        clave TEXT, 
+        rol TEXT, 
+        nombre TEXT
+    )''')
+    
+    # Migraciones seguras por si la tabla ya existía sin estas columnas
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS username TEXT UNIQUE;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave TEXT;")
     ejecutar_transaccion("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol TEXT;")
     
-    # Resto de tablas del ecosistema ERP
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS periodos_fiscales (id SERIAL PRIMARY KEY, periodo TEXT UNIQUE, estatus TEXT DEFAULT 'Abierto')''')
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_cabecera (id SERIAL PRIMARY KEY, num_asiento TEXT UNIQUE, fecha DATE, concepto TEXT, origen TEXT, creado_por TEXT)''')
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS asientos_detalle (id SERIAL PRIMARY KEY, asiento_id INT, cuenta TEXT, debe NUMERIC(15,2), haber NUMERIC(15,2))''')
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS centros_costo (id SERIAL PRIMARY KEY, codigo TEXT UNIQUE, nombre TEXT)''')
     
-    # Tabla de configuración con los paramentros de control fiscal venezolano agregados
     ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS configuracion (
         id INTEGER PRIMARY KEY DEFAULT 1, 
         nombre_empresa TEXT, 
@@ -98,14 +104,19 @@ def inicializar_db():
         factor_sustraendo NUMERIC(10,4) DEFAULT 83.3334
     )''')
     
-    # Ejecución de migraciones seguras en caliente
     ejecutar_transaccion("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS tipo_contribuyente TEXT DEFAULT 'Ordinario';")
     ejecutar_transaccion("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS ut_valor NUMERIC(10,2) DEFAULT 0.00;")
     ejecutar_transaccion("ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS factor_sustraendo NUMERIC(10,4) DEFAULT 83.3334;")
 
-    # Semilla del Administrador Principal con hash de seguridad nativo
+    # CORREGIDO: Forzamos la actualización de la clave del administrador por si quedó un registro corrupto/antiguo
     pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    ejecutar_transaccion("INSERT INTO usuarios (username, clave, rol, nombre) VALUES ('admin', %s, 'admin', 'Admin Principal') ON CONFLICT (username) DO NOTHING", (pw_hash,))
+    ejecutar_transaccion("""
+        INSERT INTO usuarios (username, clave, rol, nombre) 
+        VALUES ('admin', %s, 'admin', 'Admin Principal') 
+        ON CONFLICT (username) 
+        DO UPDATE SET clave = EXCLUDED.clave, rol = EXCLUDED.rol;
+    """, (pw_hash,))
+    
     ejecutar_transaccion("INSERT INTO configuracion (id, nombre_empresa) VALUES (1, 'ADONAI GROUP') ON CONFLICT (id) DO NOTHING")
 
 def obtener_ultimo_correlativo(prefijo):
