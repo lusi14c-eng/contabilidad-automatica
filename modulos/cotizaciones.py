@@ -15,16 +15,27 @@ def modulo_crear_cotizaciones():
     with tab1:
         st.subheader("Generador de Presupuestos")
         
-        # Cargar Clientes y Artículos desde la DB
+        # Cargar Clientes y Artículos desde la DB con protección anticaídas
         conn = database.conectar()
         clientes_df, articulos_df = pd.DataFrame(), pd.DataFrame()
         if conn:
             try:
                 clientes_df = pd.read_sql("SELECT rif, nombre, direccion FROM entidades ORDER BY nombre ASC", conn)
-                articulos_df = pd.read_sql("SELECT codigo, descripcion, precio_sugerido FROM articulos ORDER BY codigo ASC", conn)
+                
+                # Intentar leer los artículos
+                try:
+                    articulos_df = pd.read_sql("SELECT codigo, descripcion, precio_sugerido FROM articulos ORDER BY codigo ASC", conn)
+                except Exception:
+                    # SI DA ERROR PORQUE NO EXISTE: La creamos en caliente de inmediato
+                    database.ejecutar_transaccion('''CREATE TABLE IF NOT EXISTS articulos (
+                        codigo TEXT PRIMARY KEY, descripcion TEXT, precio_sugerido NUMERIC(15,2) DEFAULT 0.00)''')
+                    # Reintento de lectura seguro
+                    articulos_df = pd.read_sql("SELECT codigo, descripcion, precio_sugerido FROM articulos ORDER BY codigo ASC", conn)
+                    
             except Exception as e:
                 st.error(f"Error al cargar datos base: {e}")
-            finally: conn.close()
+            finally: 
+                conn.close()
 
         if clientes_df.empty:
             st.warning("⚠️ No hay clientes registrados en el sistema. Utiliza la pestaña de Carga Masiva.")
