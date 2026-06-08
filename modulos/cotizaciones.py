@@ -23,7 +23,7 @@ from googleapiclient.http import MediaIoBaseUpload
 def subida_credenciales_drive():
     """Autentica con la API de Google Drive usando los secretos del entorno."""
     info_claves = dict(st.secrets["gcp_service_account"])
-    # Limpia los saltos de línea de la clave privada por si acaso
+    # Esta línea se encarga de convertir los \n de texto en saltos reales para Google
     info_claves["private_key"] = info_claves["private_key"].replace("\\n", "\n")
     credenciales = service_account.Credentials.from_service_account_info(info_claves)
     return build('drive', 'v3', credentials=credenciales)
