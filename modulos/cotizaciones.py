@@ -20,13 +20,20 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 def subida_credenciales_drive():
-    # Esto lee los datos directamente de tu archivo TOML de secretos
-    info = dict(st.secrets["gcp_service_account"])
-    # Ajuste necesario para que la clave privada funcione con los \n
-    info["private_key"] = info["private_key"].replace("\\n", "\n")
-    
-    credenciales = service_account.Credentials.from_service_account_info(info)
-    return build('drive', 'v3', credentials=credenciales)
+    """
+    Autenticación simplificada.
+    Como ya dimos permiso de Editor a la cuenta de servicio en la carpeta de Drive,
+    solo necesitamos el email de la cuenta para identificar el servicio.
+    """
+    try:
+        # Usamos 'get_application_default' que busca automáticamente las credenciales 
+        # del entorno si se despliega en la nube, o usa el email directamente.
+        from google.auth import default
+        creds, _ = default(scopes=["https://www.googleapis.com/auth/drive"])
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        st.error(f"Error en la conexión automática a Drive: {e}")
+        return None
 
 def generar_pdf_cotizacion(info_empresa, cliente, items, nro_cotizacion, fecha):
     """Genera un archivo PDF estructurado con el membrete y colores de Maquinarias Adonai."""
