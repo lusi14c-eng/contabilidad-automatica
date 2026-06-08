@@ -1,15 +1,17 @@
 import streamlit as st
 import pandas as pd
 import database
+import hashlib
+from datetime import datetime
 from modulos import entidades, compras
 
 # 1. Configuración de página
 st.set_page_config(page_title="Adonai ERP", layout="wide")
 
-# 2. Inicializar base de datos
+# 2. Inicializar base de datos y migraciones
 database.inicializar_db()
 
-# --- NUEVOS MÓDULOS DE CONTABILIDAD GENERAL (CG) Y AUDITORÍA ---
+# --- MÓDULOS DE CONTABILIDAD GENERAL (CG) ---
 
 def modulo_contabilidad_general():
     st.title("🏛️ Contabilidad General (CG)")
@@ -17,15 +19,15 @@ def modulo_contabilidad_general():
 
     with t1:
         st.subheader("Asientos Contables")
-        # Aquí luego programaremos la creación de asientos manuales CGXXXXXXXX
         st.info("Consulte aquí todos los asientos generados por CP y CG.")
         conn = database.conectar()
         query = """
             SELECT a.num_asiento, a.fecha, a.concepto, a.origen, a.creado_por,
-                   SUM(d.debe) as total_debe
+                   COALESCE(SUM(d.debe), 0) as total_debe
             FROM asientos_cabecera a
             LEFT JOIN asientos_detalle d ON a.id = d.asiento_id
-            GROUP BY a.id ORDER BY a.fecha DESC
+            GROUP BY a.id, a.num_asiento, a.fecha, a.concepto, a.origen, a.creado_por 
+            ORDER BY a.fecha DESC
         """
         df_asientos = pd.read_sql(query, conn)
         st.dataframe(df_asientos, use_container_width=True)
@@ -55,8 +57,7 @@ def modulo_contabilidad_general():
 
     with t3:
         st.subheader("Cierre de Períodos")
-        st.warning("Un período cerrado no permite nuevos registros contables.")
-        # Lógica de bloqueo de meses para el SENIAT
+        st.warning("⚠️ Un período cerrado bloquea los registros ante el SENIAT.")
 
 def modulo_auditoria():
     st.title("🕵️ Historial de Actividad (Auditoría)")
@@ -65,21 +66,23 @@ def modulo_auditoria():
     conn.close()
     st.dataframe(df_logs, use_container_width=True)
 
-# --- MÓDULOS EXISTENTES RESTAURADOS ---
+# --- GESTIÓN DE PERFIL Y USUARIOS CORREGIDOS (CON HASH SHA256) ---
 
 def modulo_perfil():
     st.title("👤 Mi Perfil")
     with st.form("form_cambio_clave"):
         nueva_p = st.text_input("Nueva Contraseña", type="password")
         if st.form_submit_button("✅ Actualizar Clave"):
-            conn = database.conectar()
-            c = conn.cursor()
-            c.execute("UPDATE usuarios SET password = %s WHERE username = %s", 
-                      (nueva_p, st.session_state['usuario_autenticado']))
-            conn.commit()
-            database.registrar_log(st.session_state['usuario_autenticado'], "EDITAR", "usuarios", "Cambió su contraseña")
-            conn.close()
-            st.success("Contraseña actualizada.")
+            if nueva_p.strip():
+                p_hash = hashlib.sha256(nueva_p.encode()).hexdigest()
+                database.ejecutar_transaccion(
+                    "UPDATE usuarios SET clave = %s WHERE username = %s", 
+                    (p_hash, st.session_state['usuario_autenticado'])
+                )
+                database.registrar_log(st.session_state['usuario_autenticado'], "EDITAR", "usuarios", "Cambió su contraseña de ingreso")
+                st.success("Contraseña actualizada con éxito.")
+            else:
+                st.error("La contraseña no puede estar vacía.")
 
 def modulo_gestion_usuarios():
     st.title("👥 Gestión de Usuarios")
@@ -89,73 +92,76 @@ def modulo_gestion_usuarios():
             p = st.text_input("Password", type="password")
             r = st.selectbox("Rol", ["usuario", "admin"])
             if st.form_submit_button("Registrar"):
-                conn = database.conectar()
-                c = conn.cursor()
-                c.execute("INSERT INTO usuarios (username, password, rol) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (u, p, r))
-                conn.commit()
-                database.registrar_log(st.session_state['usuario_autenticado'], "CREAR", "usuarios", f"Creó usuario: {u}")
-                conn.close()
-                st.rerun()
-    # ... tabla de usuarios (se mantiene igual) ...
+                if u and p:
+                    p_hash = hashlib.sha256(p.encode()).hexdigest()
+                    database.ejecutar_transaccion(
+                        "INSERT INTO usuarios (username, clave, rol) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", 
+                        (u, p_hash, r)
+                    )
+                    database.registrar_log(st.session_state['usuario_autenticado'], "CREAR", "usuarios", f"Creó usuario: {u}")
+                    st.success(f"¡Usuario {u} creado correctamente!")
+                    st.rerun()
+                else:
+                    st.error("Complete los campos obligatorios.")
+
+# --- FORMULARIO DE CONFIGURACIÓN GLOBAL ÚNICO (UNIFICADO) ---
 
 def modulo_configuracion_sistema():
-    st.markdown("## ⚙️ Configuración del Sistema")
-    
-    # Llamamos de forma segura a la base de datos
+    st.title("⚙️ Configuración Global del Sistema")
     conf = database.obtener_configuracion_empresa()
     
-    # Creamos el formulario obligatorio exigido por Streamlit
     with st.form("form_configuracion_global"):
+        st.subheader("Datos del Agente de Retención (Tu Empresa)")
         col1, col2 = st.columns(2)
-        
-        n = col1.text_input("Razón Social", value=conf.get('nombre_empresa', 'ADONAI GROUP'))
+        n = col1.text_input("Razón Social / Nombre Legal", value=conf.get('nombre_empresa', 'ADONAI GROUP'))
         r = col2.text_input("RIF de la Empresa", value=conf.get('rif_empresa', ''))
         d = st.text_area("Dirección Fiscal", value=conf.get('direccion_empresa', ''))
         
-        # --- SOLUCIÓN AL ERROR DEL SELECTBOX Y EL INDEX ---
         contribuyente_actual = conf.get('tipo_contribuyente', 'Ordinario')
         opciones_contribuyente = ["Especial", "Ordinario", "Formal"]
-        
         try:
             posicion_index = opciones_contribuyente.index(contribuyente_actual)
         except ValueError:
-            posicion_index = 1  # Por defecto 'Ordinario' si no coincide
+            posicion_index = 1
             
-        t = col1.selectbox("Contribuyente", opciones_contribuyente, index=posicion_index)
-        # --------------------------------------------------
+        t = col1.selectbox("Tipo de Contribuyente", opciones_contribuyente, index=posicion_index)
         
-        # EL BOTÓN CORRECTO: Evita el error de "Missing Submit Button"
-        boton_guardar = st.form_submit_button("Actualizar Datos de la Empresa")
+        st.divider()
+        st.subheader("Parámetros Fiscales de Control")
+        col3, col4 = st.columns(2)
+        nueva_ut = col3.number_input("Valor Unidad Tributaria (Bs.)", value=float(conf.get('ut_valor', 0.00)), format="%.2f")
+        factor = col4.number_input("Factor Sustraendo (Estándar 83.3334)", value=float(conf.get('factor_sustraendo', 83.3334)), format="%.4f")
         
-        if boton_guardar:
-            # Guarda los datos en la base de datos
+        if st.form_submit_button("Actualizar Todo el Sistema"):
             database.ejecutar_transaccion(
-                "UPDATE configuracion SET nombre_empresa=%s, rif_empresa=%s, direccion_empresa=%s WHERE id=1",
-                (n, r, d)
+                """UPDATE configuracion SET 
+                   nombre_empresa=%s, rif_empresa=%s, direccion_empresa=%s, 
+                   tipo_contribuyente=%s, ut_valor=%s, factor_sustraendo=%s 
+                   WHERE id=1""",
+                (n, r, d, t, nueva_ut, factor)
             )
-            
-            # Registra el log sin que falte la función
             database.registrar_log(
                 st.session_state.get('usuario_autenticado', 'admin'), 
                 "EDITAR", 
                 "configuracion", 
-                "Actualizó datos de la empresa"
+                "Actualizó datos de empresa y parámetros tributarios unificados"
             )
-            st.success("🏢 ¡Datos de la empresa actualizados con éxito!")
+            st.success("✅ Configuración corporativa y parámetros fiscales sincronizados en Neon.")
             st.rerun()
 
-# --- CONTROL DE ACCESO ---
+# --- SISTEMA GASTRONÓMICO DE CONTROL DE ACCESO ---
 
 def check_password():
     if "usuario_autenticado" not in st.session_state:
         st.markdown("<h2 style='text-align: center;'>🔐 Acceso Adonai ERP</h2>", unsafe_allow_html=True)
         with st.form("login"):
-            user = st.text_input("Usuario")
+            user = st.text_input("Usuario").lower().strip()
             pw = st.text_input("Contraseña", type="password")
             if st.form_submit_button("Entrar"):
+                pw_hash = hashlib.sha256(pw.encode()).hexdigest()
                 conn = database.conectar()
                 c = conn.cursor()
-                c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND password = %s", (user, pw))
+                c.execute("SELECT username, rol FROM usuarios WHERE username = %s AND clave = %s", (user, pw_hash))
                 res = c.fetchone()
                 conn.close()
                 if res:
@@ -167,7 +173,7 @@ def check_password():
         return False
     return True
 
-# --- RUTA PRINCIPAL ---
+# --- ENRUTADOR ---
 
 if check_password():
     st.sidebar.title("🚀 Adonai ERP")
@@ -180,15 +186,17 @@ if check_password():
     
     if st.sidebar.button("Cerrar Sesión"):
         del st.session_state["usuario_autenticado"]
+        if "rol" in st.session_state:
+            del st.session_state["rol"]
         st.rerun()
 
     if menu == "Dashboard":
-        st.title("📈 Dashboard")
-        st.write(f"Bienvenido, {st.session_state['usuario_autenticado']}")
+        st.title("📈 Dashboard Finanzas")
+        st.write(f"Bienvenido al sistema, **{st.session_state['usuario_autenticado'].upper()}**")
     elif menu == "Registrar Entidad":
         entidades.modulo_maestro_entidades()
     elif menu == "Cuentas por Pagar (CP)":
-        compras.modulo_compras() # Se renombró el menú pero llama a la misma función por ahora
+        compras.modulo_compras()
     elif menu == "Mi Perfil":
         modulo_perfil()
     elif menu == "Contabilidad General (CG)":
