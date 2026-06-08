@@ -125,7 +125,11 @@ def generar_pdf_cotizacion(info_empresa, cliente, items, nro_cotizacion, fecha):
     doc.build(story)
     buffer.seek(0)
     return buffer
-
+    
+pdf_datos.seek(0) # <--- ¡ESTO ES VITAL! Asegura que el archivo se lea desde el principio
+with st.spinner("Subiendo respaldo PDF..."):
+    subido = subir_pdf_a_drive(nombre_archivo_pdf, pdf_datos)
+    
 def subir_pdf_a_drive(nombre_archivo, buffer_pdf):
     """Sube el archivo PDF en memoria directo a la carpeta compartida en Google Drive."""
     try:
@@ -140,7 +144,10 @@ def subir_pdf_a_drive(nombre_archivo, buffer_pdf):
         servicio.files().create(body=metadatos_archivo, media_body=media, fields='id').execute()
         return True
     except Exception as e:
-        st.error(f"Error al respaldar en Google Drive: {e}")
+        # Esto imprimirá el error real en la consola de Streamlit para que sepamos qué falla
+        st.error(f"DETALLE DEL ERROR EN DRIVE: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc()) # Esto te mostrará la línea exacta donde explota
         return False
 
 def modulo_crear_cotizaciones():
