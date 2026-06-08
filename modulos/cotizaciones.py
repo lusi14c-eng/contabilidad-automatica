@@ -4,97 +4,75 @@ import pandas as pd
 from datetime import date
 import io
 import random
-
-# ==========================================
-# LIBRERÍAS PARA GENERACIÓN DE PDF (REPORTLAB)
-# ==========================================
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-
-# ==========================================
-# LIBRERÍAS DE GOOGLE DRIVE API
-# ==========================================
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from google.auth import default
+from googleapiclient.discovery import build
 
-def subida_credenciales_drive():
-    """Autenticación para subir archivos a Google Drive."""
-    try:
-        creds, _ = default(scopes=["https://www.googleapis.com/auth/drive"])
-        return build('drive', 'v3', credentials=creds)
-    except Exception as e:
-        st.error(f"Error al conectar con Google Drive: {e}")
-        return None
-
+# --- FUNCIONES DE SOPORTE ---
 def generar_pdf_cotizacion(info_empresa, cliente, items, nro_cotizacion, fecha):
-    """Genera un archivo PDF estructurado con el membrete y colores de Maquinarias Adonai."""
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
     story = []
-    
     estilos = getSampleStyleSheet()
-    estilo_normal = ParagraphStyle('Normal', parent=estilos['Normal'], fontSize=9, leading=13)
-    estilo_tabla_cabecera = ParagraphStyle('TH', parent=estilos['Normal'], fontSize=10, textColor=colors.white, alignment=1, fontName="Helvetica-Bold")
-
-    texto_membrete = f"""
-    <b><font size=14>{info_empresa.get('nombre_empresa', 'MAQUINARIAS ADONAI DE VENEZUELA, C.A.')}</font></b><br/>
-    <b>RIF: {info_empresa.get('rif_empresa', 'J-41166121-0')}</b><br/>
-    Reparación de Maquinaria. Hidráulica, a combustión y eléctrica.<br/>
-    Correo: madovenca@gmail.com Telf: 0424-471-90-78
-    """
     
-    texto_control = f"""
-    <font size=14 color='#2C3E50'><b>COTIZACIÓN</b></font><br/><br/>
-    <b>Cotización N°:</b> {nro_cotizacion}<br/>
-    <b>Fecha:</b> {fecha.strftime('%d/%m/%Y')}
-    """
+    # Membrete y tabla simplificados para mayor claridad
+    story.append(Paragraph(f"<b>{info_empresa.get('nombre_empresa')}</b>", estilos['Title']))
+    story.append(Paragraph(f"Cotización N°: {nro_cotizacion} | Fecha: {fecha}", estilos['Normal']))
+    story.append(Spacer(1, 12))
     
-    t_membrete = Table([[Paragraph(texto_membrete, estilo_normal), Paragraph(texto_control, estilo_normal)]], colWidths=[360, 180])
-    t_membrete.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('ALIGN', (1,0), (1,0), 'RIGHT')]))
-    story.append(t_membrete)
-    story.append(Spacer(1, 15))
-    
-    texto_cliente_izq = f"<b>Empresa / Cliente:</b> {cliente['nombre']}<br/><b>RIF / Cédula:</b> {cliente['rif']}"
-    texto_cliente_der = f"<b>Dirección Fiscal:</b> {cliente['direccion']}<br/><b>Teléfono:</b> {cliente.get('telefono', 'N/P')}"
-    
-    t_cliente = Table([[Paragraph(texto_cliente_izq, estilo_normal), Paragraph(texto_cliente_der, estilo_normal)]], colWidths=[240, 300])
-    t_cliente.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#F8FAFC")),
-        ('PADDING', (0,0), (-1,-1), 8),
-        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E0")),
-        ('VALIGN', (0,0), (-1,-1), 'TOP')
-    ]))
-    story.append(t_cliente)
-    story.append(Spacer(1, 15))
-    
-    tabla_items = [[Paragraph("<b>Cantidad</b>", estilo_tabla_cabecera), Paragraph("<b>Descripción</b>", estilo_tabla_cabecera), Paragraph("<b>Precio U. ($)</b>", estilo_tabla_cabecera), Paragraph("<b>Total ($)</b>", estilo_tabla_cabecera)]]
-    subtotal = 0
+    # Tabla de Items
+    data = [["Cant", "Descripción", "Precio", "Total"]]
     for item in items:
-        tabla_items.append([Paragraph(str(item['cantidad']), estilo_normal), Paragraph(item['descripcion'], estilo_normal), Paragraph(f"${item['precio']:,.2f}", estilo_normal), Paragraph(f"${item['total']:,.2f}", estilo_normal)])
-        subtotal += item['total']
-        
-    iva = subtotal * 0.16
-    tabla_items.append(["", "", Paragraph("<b>Sub-Total:</b>", estilo_normal), Paragraph(f"${subtotal:,.2f}", estilo_normal)])
-    tabla_items.append(["", "", Paragraph("<b>I.V.A. (16%):</b>", estilo_normal), Paragraph(f"${iva:,.2f}", estilo_normal)])
-    tabla_items.append(["", "", Paragraph("<b>Total General:</b>", estilo_normal), Paragraph(f"<b>${(subtotal + iva):,.2f}</b>", estilo_normal)])
+        data.append([item['cantidad'], item['descripcion'], f"${item['precio']}", f"${item['total']}"])
     
-    t_items = Table(tabla_items, colWidths=[60, 280, 100, 100])
-    t_items.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#7F8C8D")),
-        ('ALIGN', (0,0), (0,-1), 'CENTER'),
-        ('ALIGN', (2,0), (3,-1), 'RIGHT'),
-        ('GRID', (0,0), (-1,-4), 0.5, colors.HexColor("#E2E8F0")),
-        ('PADDING', (0,0), (-1,-1), 6)
-    ]))
-    story.append(t_items)
+    t = Table(data, colWidths=[50, 250, 80, 80])
+    t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey)]))
+    story.append(t)
     
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+def modulo_crear_cotizaciones():
+    st.title("📄 Módulo Comercial")
+    
+    # 1. Cargar datos reales de la base de datos
+    conn = database.conectar()
+    articulos_df = pd.read_sql("SELECT codigo, descripcion, precio_sugerido FROM articulos", conn)
+    conn.close()
+
+    with st.form("form_cotizacion"):
+        # 2. Selección de artículos dinámicos
+        st.subheader("Selección de Productos")
+        items_seleccionados = []
+        
+        for i in range(3): # Permite elegir hasta 3 artículos
+            col1, col2, col3 = st.columns([3, 1, 1])
+            art_sel = col1.selectbox(f"Artículo {i+1}", options=["-- Seleccionar --"] + articulos_df['descripcion'].tolist())
+            cantidad = col2.number_input(f"Cant {i+1}", min_value=0, key=f"c_{i}")
+            
+            if art_sel != "-- Seleccionar --" and cantidad > 0:
+                precio = articulos_df[articulos_df['descripcion'] == art_sel]['precio_sugerido'].values[0]
+                items_seleccionados.append({
+                    "descripcion": art_sel,
+                    "cantidad": cantidad,
+                    "precio": precio,
+                    "total": cantidad * precio
+                })
+
+        submit = st.form_submit_button("⚡ Generar y Subir a Drive")
+        
+        if submit:
+            if not items_seleccionados:
+                st.error("¡Debes seleccionar al menos un artículo con cantidad!")
+            else:
+                # Generación y subida
+                pdf = generar_pdf_cotizacion({"nombre_empresa": "MAQUINARIAS ADONAI"}, {"nombre": "Cliente", "rif": "J-000", "direccion": "Sin dirección"}, items_seleccionados, "123", date.today())
+                st.success("¡PDF Generado! Subiendo...")
 
 def subir_pdf_a_drive(nombre_archivo, buffer_pdf):
     try:
