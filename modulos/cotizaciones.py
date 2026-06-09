@@ -19,8 +19,8 @@ def generar_pdf_cotizacion(info_empresa, cliente_info, items, nro_cotizacion, fe
     estilos = getSampleStyleSheet()
     estilo_normal = ParagraphStyle('Normal', fontSize=10)
     
-    # Encabezado (Datos de Maquinarias Adonai)
-    story.append(Paragraph(f"<b>{info_empresa['nombre']}</b>", estilos['Heading1']))
+    # Encabezado 
+    story.append(Paragraph(f"<b>{info_empresa['nombre_empresa']}</b>", estilo_titulo))
     story.append(Paragraph(f"RIF: {info_empresa['rif']}", estilo_normal))
     story.append(Paragraph(f"Telf: {info_empresa['telefono']}", estilo_normal))
     story.append(Spacer(1, 12))
