@@ -36,15 +36,33 @@ def generar_pdf_cotizacion(info_empresa, cliente, items, nro_cotizacion, fecha):
 
 def subir_pdf_a_drive(nombre_archivo, buffer_pdf):
     try:
-        creds, _ = default(scopes=["https://www.googleapis.com/auth/drive"])
+        # Usamos los secretos que configuraste en Streamlit
+        # Nota: Asegúrate de tener el JSON completo en st.secrets["gcp_service_account"]
+        creds_dict = st.secrets["gcp_service_account"] 
+        creds = service_account.Credentials.from_service_account_info(creds_dict)
+        
+        # Construir el servicio de Drive explícitamente
         servicio = build('drive', 'v3', credentials=creds)
+        
+        # ID de la carpeta desde tus secretos
         id_carpeta_destino = st.secrets["google_drive"]["folder_id"]
-        metadatos_archivo = {'name': nombre_archivo, 'parents': [id_carpeta_destino]}
+        
+        metadatos_archivo = {
+            'name': nombre_archivo,
+            'parents': [id_carpeta_destino]
+        }
+        
         media = MediaIoBaseUpload(buffer_pdf, mimetype='application/pdf', resumable=True)
-        servicio.files().create(body=metadatos_archivo, media_body=media, fields='id').execute()
+        
+        archivo = servicio.files().create(
+            body=metadatos_archivo, 
+            media_body=media, 
+            fields='id'
+        ).execute()
+        
         return True
     except Exception as e:
-        st.error(f"Error en Drive: {e}")
+        st.error(f"Error técnico al subir a Drive: {e}")
         return False
 
 # --- MÓDULO COMERCIAL ---
