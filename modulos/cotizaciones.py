@@ -10,21 +10,42 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 # --- FUNCIÓN DE GENERACIÓN PDF (LIMPIA) ---
-def generar_pdf_cotizacion(info_empresa, cliente, items, nro_cotizacion, fecha):
+def generar_pdf_cotizacion(info_empresa, cliente_info, items, nro_cotizacion, fecha):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     story = []
+    
+    # Estilos
     estilos = getSampleStyleSheet()
-    estilo_normal = ParagraphStyle('Normal', parent=estilos['Normal'], fontSize=9)
+    estilo_normal = ParagraphStyle('Normal', fontSize=10)
     
-    story.append(Paragraph(f"<b>{info_empresa['nombre_empresa']}</b>", estilo_normal))
-    story.append(Paragraph(f"Cotización: {nro_cotizacion} | Fecha: {fecha}", estilo_normal))
+    # Encabezado (Datos de Maquinarias Adonai)
+    story.append(Paragraph(f"<b>{info_empresa['nombre']}</b>", estilos['Heading1']))
+    story.append(Paragraph(f"RIF: {info_empresa['rif']}", estilo_normal))
+    story.append(Paragraph(f"Telf: {info_empresa['telefono']}", estilo_normal))
+    story.append(Spacer(1, 12))
     
+    # Datos de Cotización y Cliente
+    story.append(Paragraph(f"<b>Cotización:</b> {nro_cotizacion} | <b>Fecha:</b> {fecha}", estilo_normal))
+    story.append(Paragraph(f"<b>Cliente:</b> {cliente_info['nombre']} | <b>RIF:</b> {cliente_info['rif']}", estilo_normal))
+    story.append(Spacer(1, 12))
+
+    # Tabla de productos
     tabla_data = [["Cant", "Descripción", "Precio", "Total"]]
+    subtotal = 0
     for item in items:
+        subtotal += item['total']
         tabla_data.append([str(item['cantidad']), item['descripcion'], f"${item['precio']:,.2f}", f"${item['total']:,.2f}"])
     
-    story.append(Table(tabla_data))
+    # Totales con IVA
+    iva = subtotal * 0.16
+    tabla_data.append(["", "", "Subtotal:", f"${subtotal:,.2f}"])
+    tabla_data.append(["", "", "IVA 16%:", f"${iva:,.2f}"])
+    tabla_data.append(["", "", "<b>Total:</b>", f"<b>${subtotal + iva:,.2f}</b>"])
+    
+    t = Table(tabla_data, colWidths=[50, 250, 80, 80])
+    # ... (aplicar diseño de tabla aquí) ...
+    story.append(t)
     doc.build(story)
     buffer.seek(0)
     return buffer
