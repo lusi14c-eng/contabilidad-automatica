@@ -8,6 +8,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from google.oauth2 import service_account
 from googleapiclient.http import MediaIoBaseUpload
 from googleapiclient.discovery import build
 from google.auth import default
